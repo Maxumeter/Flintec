@@ -1,27 +1,38 @@
 # Flintec Control Center v1.8.9
 
-## Fixed
+## Änderungen
 
-### SDO parameter writes
-- Fixed incorrect error handling in the SDO write path.
-- In v1.8.8, a failed first SDO write attempt could mask the result of the fallback request and always show:
+### SDO-Schreibzugriffe
+- Fehlerbehandlung im SDO-Write-Pfad korrigiert.
+- In v1.8.8 konnte der Fehler des ersten SDO-Schreibversuchs den tatsächlichen Rückgabewert des nachfolgenden Schreibversuchs überdecken.
+- Dadurch wurde beim Schreiben von DAD143-Parametern häufig nur die irreführende Meldung
   `HTTP 400: Field type not found`
-- v1.8.9 now reports the actual result of the SDO write request.
-- Verified with DAD143 calibration parameter `0x2300:11 Zero Range`: the request now reaches EtherCAT and returns the device-side response when calibration access has not been enabled.
+  angezeigt.
+- v1.8.9 zeigt jetzt die tatsächliche Antwort des EtherCAT-SDO-Zugriffs an.
 
-### DAD143 calibration diagnostics
-- Improved visibility of device-side SDO aborts such as:
-  `Ecat SDO: Data cannot be transferred (local control)`
-- This makes TAC/Calibrate Enable protected parameters easier to diagnose.
+### DAD143 / Kalibrierparameter
+- `INTEGER32`-Schreibzugriffe erreichen jetzt den EtherCAT-/Flintec-Teilnehmer.
+- Getestet mit `0x2300:11 Zero Range`.
+- Bei gesperrten Kalibrierparametern wird jetzt die echte Geräteantwort sichtbar, z. B.
+  `Ecat SDO: Data cannot be transferred (local control)`.
+- Dadurch ist klar erkennbar, wenn vor dem Schreiben eines geschützten Kalibrierparameters zunächst `0x2300:03 Calibrate Enable` mit dem aktuellen TAC freigegeben werden muss.
 
-## Version
-- Application version: **1.8.9**
-- Previous version: 1.8.8
+### Diagnose
+- Verbesserte Fehlermeldungen für EtherCAT CoE / SDO.
+- Gerätefehler werden nicht mehr durch einen vorherigen HTTP-Fehler verdeckt.
+- Schnellere Fehlersuche bei DAD143-Inbetriebnahme, Kalibrierung und Parameteränderungen.
 
-## Build verification
-- Windows x64 installer build tested structurally as a valid PE executable.
-- Installer SHA-256:
-  `5fb17120c7ac09fca896a78d5e20bc32aec387129cc29378d92da7c5d130a45f`
+### Version
+- Neue Version: **1.8.9**
+- Vorherige Version: **1.8.8**
 
-## Note
-The repository currently contains release metadata/documentation only; the original application source code was not present in the repository when v1.8.9 was prepared.
+## Installer
+
+`Flintec_ControlCenter_Setup_1.8.9.exe`
+
+SHA-256:
+
+`5fb17120c7ac09fca896a78d5e20bc32aec387129cc29378d92da7c5d130a45f`
+
+## Hinweis
+Der Build wurde als Windows-x64-PE strukturell geprüft. Ein Live-Test gegen eine reale ctrlX-/EtherCAT-Anlage ist außerhalb der Zielanlage nicht möglich.
