@@ -32,6 +32,9 @@ html=html.replace('1.9.3','1.9.5')
 a="$('cs').textContent='Kalibriere Nullpunkt…';await CWZ(CP(0x2300,0x0A),0);"
 assert html.count(a)==1
 html=html.replace(a,"$('cs').textContent='Prüfe Stillstand…';{let st=await ST();L('NULLPUNKT | '+st.why);if(!st.ok)throw Error('Waage nicht ruhig – Nullpunkt nicht kalibriert. '+st.why)}"+a)
+a='<button class=primary onclick="f34()">Auf ausgewählte Geräte übertragen</button>'
+assert html.count(a)==1
+html=html.replace(a,a+'<button id=rt onclick="f36()" disabled>Fehlgeschlagene erneut übertragen</button>')
 for f in ('f25','f9'):
     assert html.count(f'async function {f}()')==2,f
     html=html.replace(f'async function {f}()',f'async function {f}x()',1)

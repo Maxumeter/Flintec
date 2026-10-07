@@ -26,9 +26,11 @@ Kalibrierdialog tut.
 - **Nullpunkt nur bei ruhiger Waage:** Vor `0x2300:0A` wird das Brutto ca. 2 s lang sechsmal gelesen. Schwankt es um mehr als zwei Stellen
   der letzten Ziffer oder ist es nicht lesbar, wird der Befehl nicht gesendet (Übertragung: Hinweis im Ergebnis, Einstellwerte werden
   trotzdem gespeichert; Kalibrierdialog: Abbruch vor dem Nullpunkt). Die Messwerte stehen im Log (`NULLPUNKT …`).
-- **Abbruch bei Zeitüberschreitung:** Antwortet ein Gerät mit `Ecat: Timeout`, bekommt es keine weiteren Anfragen. Antwortet ein Gerät
-  nicht auf die Nullpunkt-Kalibrierung, wird die gesamte Übertragung beendet; die übrigen Geräte bleiben unberührt und werden im Ergebnis genannt.
-  Lehnt ein Gerät den Nullpunkt dagegen sofort ab (SDO-Abbruch, z. B. `General error`), wird nur dieses Gerät nicht gespeichert und die Übertragung läuft weiter.
+- **Fehlerhafte Waagen werden übersprungen:** Antwortet ein Gerät nicht (`Ecat: Timeout`), bekommt es keine weiteren Anfragen; lehnt es den
+  Nullpunkt ab oder ist es nicht ruhig, wird es nicht gespeichert. Die Übertragung läuft jeweils mit den übrigen Waagen weiter. Nur wenn in einem
+  Lauf drei Waagen nicht auf die Nullpunkt-Kalibrierung antworten, wird der Rest nicht mehr bearbeitet (allgemeines Problem).
+- **Fehlgeschlagene erneut übertragen:** Neuer Knopf neben „Auf ausgewählte Geräte übertragen“. Er wiederholt die Übertragung nur für die
+  Waagen, die im letzten Lauf fehlgeschlagen oder übersprungen wurden (mit denselben Rückfragen).
 - Kein zweiter Bus-Scan und keine neue Dashboard-Abfrage, solange die vorherige noch läuft (bei hängendem Master stauten sich sonst Anfragen über Minuten).
 - Die Startzeile im Log enthält eine Build-Kennung (`Version 1.9.5 (Build xxxxxxxx)`), damit Testläufe eindeutig einer EXE zugeordnet werden können.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
@@ -49,4 +51,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`0cdc87af020274e420bc04efa4cb672eb414c04333f4ba1cdc80d23b78dc220c`
+`44dc38d811224ec3bfdbb449f415e0dba4bc2ecc9240218fe303804d8e103249`
