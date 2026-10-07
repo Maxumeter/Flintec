@@ -45,6 +45,7 @@ Kalibrierdialog tut.
   mit „!“ markiert), Drift wird getrennt angezeigt. Erreicht keine Stufe das Ziel, wird nichts vorgeschlagen und nichts geändert, mit Hinweis
   auf die wahrscheinliche Ursache (langsame Drift bzw. mechanisch/elektrisch). Hardware 1022: Einzeldurchgänge mit 48–51 d gegenüber 3–7 d im
   anderen Durchgang, selbst FL 8 bei 5 d – die erste Fassung hatte daraus fälschlich FL 8 vorgeschlagen.
+- Hardware 07.10.2026 (Build 5f11e164): Filter-Optimierung auf 1014 und anschließend auf 1022 sauber durchgelaufen.
 - Werte werden nur flüchtig geschrieben; Übernahme mit Speichern (`0x2004:03`) erst nach Bestätigung, sonst wird die vorherige Einstellung
   wiederhergestellt. Einschwingzeiten und Grenzfrequenzen laut Handbuch-Tabellen 9.4.2.
 
