@@ -18,7 +18,7 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
     if(p==='/api/write'){const u=unlocked[dev];unlocked[dev]=false;
       if(q.index===0x2300&&q.sub===3){unlocked[dev]=!tacBroken;return ok()}
       if((q.index===0x2300||(q.index===0x2004&&q.sub===2))&&!u)return bad('SDO Write: HTTP 500: Ecat SDO: Data cannot be transferred (local control)');
-      m[key(q.index,q.sub)]=Number(q.value);return ok()}
+      m[key(q.index,q.sub)]=Number(q.value);if(q.index===0x2300&&q.sub===0x0A)m[key(0x2300,2)]=1313+dev%10;return ok()}
     return ok();
   }});
 const run=s=>vm.runInContext(s,context);
@@ -62,7 +62,9 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   const z=w4.map((c,i)=>[c,i]).filter(([c])=>c.q.index===0x2300&&c.q.sub===0x0A);
   assert.equal(z.length,2);for(const[c,i]of z){assert.equal(c.q.value,'0');assert.deepEqual([w4[i-1].q.index,w4[i-1].q.sub],[0x2300,3]);assert.deepEqual([w4[i+1].q.index,w4[i+1].q.sub,w4[i+2].q.index],[0x2300,3,0x2004])}
   assert.ok(!w4.some(c=>c.q.index===0x2300&&c.q.sub===4),'gain is never calibrated by the transfer');
-  assert.match(out,/1023: 7 OK · 0 Fehler · Nullpunkt kalibriert · EEPROM gespeichert/);
+  // The zero calibration rewrites Absolute zero (0x2300:0x02); that is not a mismatch (seen on hardware: 1219 -> 1313).
+  assert.match(out,/1023: 7 OK · 0 Fehler · Nullpunkt kalibriert \(Absolute zero 1219→1316\) · EEPROM gespeichert/);
+  assert.equal(mem[1027][key(0x2300,2)],1320);
   // 5. Cancel on the calibration confirmation writes nothing.
   mem={};await transfer([1022],[false]);assert.ok(!calls.some(c=>c.p==='/api/write'));
   // 6. New profiles do not contain calibration commands at all.

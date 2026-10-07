@@ -19,7 +19,8 @@ Kalibrierdialog tut.
 - Optional dauerhaftes Speichern im EEPROM (`0x2004:02`), aber nur auf Geräten ohne Schreibfehler, übersprungene Werte oder Abweichungen.
 - **Optional Nullpunkt kalibrieren:** Nach einer eigenen Rückfrage („Alle Zielwaagen müssen vollständig entlastet sein“) wird auf jeder
   Zielwaage nach den Einstellwerten der Nullpunkt kalibriert (`0x2300:0A` = 0 mit TAC-Freigabe, wie im Kalibrierdialog),
-  danach erst im EEPROM gespeichert. Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
+  danach erst im EEPROM gespeichert. Der Vergleich der Werte läuft vor dem Nullpunkt, weil dieser `0x2300:02 Absolute zero`
+  mit dem eigenen Wert der Zielwaage überschreibt; das Ergebnis zeigt die Änderung (z. B. `Absolute zero 1219→1313`). Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
 
 ### Wichtig
@@ -32,7 +33,7 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - `node diagnostics/test_frontend.cjs` (bestehende Regressionstests) bestanden.
 - Neu: `node diagnostics/test_transfer.cjs` mit simuliertem DAD143, das ohne vorherige TAC-Freigabe mit „local control“ ablehnt. Der Test schlägt mit der v1.9.4-Oberfläche fehl und besteht mit v1.9.5.
 - Hardware 07.10.2026: Übertragung auf 1014 ohne Nullpunkt-Schritt erfolgreich (15 OK, 0 Fehler, EEPROM gespeichert).
-- **Nullpunkt-Schritt noch nicht an Hardware getestet.** Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
+- Hardware 07.10.2026: Nullpunkt-Schritt auf 1014 erfolgreich; die Vorversion meldete danach fälschlich `0x2300:0x02 Absolute zero: 1313≠1219` und speicherte nicht (behoben). Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`453a5c31e354250fc59db6ed328b98937d93fdbda148a41c8c3ef54105b7655e`
+`8d1d7a18553b62c4eb72fe143fdd4209ddbc31d42f80dd03a5997c23a38ace13`
