@@ -26,8 +26,9 @@ Kalibrierdialog tut.
 - **Nullpunkt nur bei ruhiger Waage:** Vor `0x2300:0A` wird das Brutto ca. 2 s lang sechsmal gelesen. Schwankt es um mehr als zwei Stellen
   der letzten Ziffer oder ist es nicht lesbar, wird der Befehl nicht gesendet (Übertragung: Hinweis im Ergebnis, Einstellwerte werden
   trotzdem gespeichert; Kalibrierdialog: Abbruch vor dem Nullpunkt). Die Messwerte stehen im Log (`NULLPUNKT …`).
-- **Abbruch bei Zeitüberschreitung:** Antwortet ein Gerät mit `Ecat: Timeout`, bekommt es keine weiteren Anfragen. Schlägt die
-  Nullpunkt-Kalibrierung fehl, wird die gesamte Übertragung beendet; die übrigen Geräte bleiben unberührt und werden im Ergebnis genannt.
+- **Abbruch bei Zeitüberschreitung:** Antwortet ein Gerät mit `Ecat: Timeout`, bekommt es keine weiteren Anfragen. Antwortet ein Gerät
+  nicht auf die Nullpunkt-Kalibrierung, wird die gesamte Übertragung beendet; die übrigen Geräte bleiben unberührt und werden im Ergebnis genannt.
+  Lehnt ein Gerät den Nullpunkt dagegen sofort ab (SDO-Abbruch, z. B. `General error`), wird nur dieses Gerät nicht gespeichert und die Übertragung läuft weiter.
 - Kein zweiter Bus-Scan und keine neue Dashboard-Abfrage, solange die vorherige noch läuft (bei hängendem Master stauten sich sonst Anfragen über Minuten).
 - Die Startzeile im Log enthält eine Build-Kennung (`Version 1.9.5 (Build xxxxxxxx)`), damit Testläufe eindeutig einer EXE zugeordnet werden können.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
@@ -44,7 +45,8 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026: Übertragung auf 1014 ohne Nullpunkt-Schritt erfolgreich (15 OK, 0 Fehler, EEPROM gespeichert).
 - Hardware 07.10.2026: Nullpunkt-Schritt auf 1014 erfolgreich; die Vorversion meldete danach fälschlich `0x2300:0x02 Absolute zero: 1313≠1219` und speicherte nicht (behoben).
 - Hardware 07.10.2026: Übertragung ohne Nullpunkt auf 1015, 1016, 1020 erfolgreich und gespeichert (mit Build beb65b79, damals noch inkl. Absolute zero der Quellwaage).
-- Hardware 07.10.2026: Auf 1015 lief die Nullpunkt-Kalibrierung (`0x2300:0A`) in einen Timeout; danach antwortete das Gerät nicht mehr und stand auf SAFE-OP. Um 11:10 hing auch 1014, die den Befehl zuvor dreimal angenommen hatte; vermutete Ursache: Messwert nicht in Ruhe. Daher die Stillstandsprüfung. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
+- Hardware 07.10.2026: Auf 1015 lief die Nullpunkt-Kalibrierung (`0x2300:0A`) in einen Timeout; danach antwortete das Gerät nicht mehr und stand auf SAFE-OP. Um 11:10 hing auch 1014, die den Befehl zuvor dreimal angenommen hatte; vermutete Ursache: Messwert nicht in Ruhe. Daher die Stillstandsprüfung.
+- Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`4a07c7fd58b25fbfe6fd302508e0fde194549c1daa044b91a545875deb2c3472`
+`0cdc87af020274e420bc04efa4cb672eb414c04333f4ba1cdc80d23b78dc220c`

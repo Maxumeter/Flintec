@@ -3,7 +3,7 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const elements=new Map();
 function el(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){}},addEventListener(){},checked:false,scrollHeight:0});return elements.get(id);}
-let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false,zeroHangs=0,hung=new Set(),gross={};
+let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false,zeroHangs=0,hung=new Set(),gross={},zeroRejects=0;
 const key=(i,s)=>`${i}:${s}`;
 const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error,Promise,performance,Blob,URL,
   setInterval:()=>1,clearInterval(){},setTimeout:f=>{f();return 1},
@@ -19,6 +19,7 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
     if(p==='/api/read')return ok(m[key(q.index,q.sub)]??0);
     if(p==='/api/write'){const u=unlocked[dev];unlocked[dev]=false;
       if(q.index===0x2300&&q.sub===3){unlocked[dev]=!tacBroken;return ok()}
+      if(q.index===0x2300&&q.sub===0x0A&&dev===zeroRejects&&u)return bad('SDO Write: HTTP 500: Ecat SDO: General error');
       if(q.index===0x2300&&q.sub===0x0A&&dev===zeroHangs&&u){hung.add(dev);return bad('SDO Write: HTTP 500: Ecat: Timeout')}
       if((q.index===0x2300||(q.index===0x2004&&q.sub===2))&&!u)return bad('SDO Write: HTTP 500: Ecat SDO: Data cannot be transferred (local control)');
       m[key(q.index,q.sub)]=Number(q.value);if(q.index===0x2300&&q.sub===0x0A)m[key(0x2300,2)]=1313+dev%10;return ok()}
@@ -82,6 +83,10 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   mem={};gross={1034:'—'};out=await transfer([1034],[true,true,true,true]);
   assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.match(out,/Brutto nicht lesbar/);
   gross={};
+  // 5a. Zero calibration rejected by the device (hardware 1023: "Ecat SDO: General error" after 33 ms): that device is not saved, the run continues.
+  mem={};zeroRejects=1023;out=await transfer([1023,1027],[true,true,true,true]);zeroRejects=0;
+  assert.match(out,/1023: 6 OK · 1 Fehler · Nullpunkt-Fehler · NICHT gespeichert/);assert.match(out,/General error/);
+  assert.match(out,/1027: 6 OK · 0 Fehler · Nullpunkt kalibriert[^\n]*EEPROM gespeichert/);assert.doesNotMatch(out,/ÜBERTRAGUNG BEENDET/);
   // 5b. Zero calibration times out (hardware 1015): no further requests to that device, nothing saved, remaining devices untouched.
   mem={};zeroHangs=1015;out=await transfer([1014,1015,1016],[true,true,true,true]);
   const zi=calls.findIndex(c=>c.dev===1015&&c.p==='/api/write'&&c.q.sub===0x0A);
@@ -89,7 +94,7 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   assert.ok(!calls.some(c=>c.dev===1016),'devices after a failed zero calibration are not touched');
   assert.match(out,/1014: 6 OK · 0 Fehler · Nullpunkt kalibriert[^\n]*EEPROM gespeichert/);
   assert.match(out,/1015: 6 OK · 1 Fehler · Nullpunkt-Fehler · Gerät antwortet nicht mehr/);
-  assert.match(out,/ÜBERTRAGUNG BEENDET[^\n]*1015[^\n]*Nicht bearbeitet: 1016/);
+  assert.match(out,/ÜBERTRAGUNG BEENDET: Nullpunkt-Kalibrierung auf 1015 ohne Antwort[^\n]*[^\n]*Nicht bearbeitet: 1016/);
   zeroHangs=0;hung.clear();
   // 6. Cancel on the calibration confirmation writes nothing.
   mem={};await transfer([1022],[false]);assert.ok(!calls.some(c=>c.p==='/api/write'));
