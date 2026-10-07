@@ -7,7 +7,7 @@ let HB=setInterval(()=>fetch('/api/heartbeat',{method:'POST',cache:'no-store'}).
   node.scrollTop = node.scrollHeight;
 }
 function exportLog() {
-  const data = `Flintec Control Center 1.9.4\n${$('log').textContent}`;
+  const data = `Flintec Control Center 1.9.5\n${$('log').textContent}`;
   const url = URL.createObjectURL(new Blob([data], {type:'text/plain;charset=utf-8'}));
   const a = document.createElement('a');
   a.href = url; a.download = `Flintec_Log_${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;

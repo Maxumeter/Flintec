@@ -35,4 +35,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - **Nullpunkt-Schritt noch nicht an Hardware getestet.** Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`593a13836daa97a912591e9ab70c5dce8426c8d9b42299ced8a7897cfefd0644`
+`453a5c31e354250fc59db6ed328b98937d93fdbda148a41c8c3ef54105b7655e`
