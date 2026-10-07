@@ -38,6 +38,14 @@ html=html.replace(a,a+'<button id=rt onclick="f36()" disabled>Fehlgeschlagene er
 a='Verstärkung → optional dauerhaft im EEPROM speichern.</p></div>'
 assert html.count(a)==1
 html=html.replace(a,a+'<div class=panel><h3>Filter-Optimierung</h3><p class=muted>Misst bei leerer Waage alle Filterstufen (Handbuch 9.4) und schlägt den schnellsten Filter vor, der die Schwankung im Ziel hält. Übernahme und Speichern nur nach Bestätigung.</p><div class=grid><div class=f><label>Ziel: max. Schwankung (d)</label><input id=fo_t type=number min=1 value=1></div><div class=f><label>Messzeit je Stufe (s)</label><input id=fo_s type=number min=3 value=8></div><div class=f><label>Filtermodus</label><select id=fo_m><option value=0>IIR (FM 0, Standard)</option><option value=1>FIR (FM 1)</option></select></div></div><div class=bar><button class=primary onclick="FO()">Filter optimieren</button><span id=fs class=muted>Bereit</span></div><pre id=fo>—</pre></div>')
+for a,n in [('<label class=check><input id=pk type=checkbox> Kalibrierung</label><div class=bar>','<label class=check><input id=pk type=checkbox> Kalibrierung</label><label class=check><input id=pfo type=checkbox> <span id=pfol>Filter (FM/FL)</span></label><div class=bar>'),
+  ('<div id=ps class=muted>Bereit</div>','<div id=ps class=muted>Bereit</div><progress id=pr2 value=0 max=100></progress><div id=ps2 class=muted>–</div>'),
+  ('<label class=check><input id=ik type=checkbox> Kalibrierung</label></div>','<label class=check><input id=ik type=checkbox> Kalibrierung</label> <label class=check><input id=ifo type=checkbox disabled> <span id=ifol>Filter (nicht im Profil)</span></label></div>'),
+  ('<span id=fs class=muted>Bereit</span></div><pre id=fo>','<span id=fs class=muted>Bereit</span></div><progress id=fp value=0 max=100></progress><pre id=fo>'),
+  ('async function f26(a, stayBus = false)','async function f26x(a, stayBus = false)'),
+  ('function f5(master,device,address=0){','function f5x(master,device,address=0){')]:
+    assert html.count(a)==1,a
+    html=html.replace(a,n)
 for f in ('f25','f9'):
     assert html.count(f'async function {f}()')==2,f
     html=html.replace(f'async function {f}()',f'async function {f}x()',1)

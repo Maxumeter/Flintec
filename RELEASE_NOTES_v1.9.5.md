@@ -54,6 +54,17 @@ Kalibrierdialog tut.
 - Werte werden nur flüchtig geschrieben; Übernahme mit Speichern (`0x2004:03`) erst nach Bestätigung, sonst wird die vorherige Einstellung
   wiederhergestellt. Einschwingzeiten und Grenzfrequenzen laut Handbuch-Tabellen 9.4.2.
 
+### Bedienung
+- Fortschrittsbalken in der Filter-Optimierung (Durchgang, Stufe, Einschwingen/Messen, Prozent).
+- Profilübertragung mit zweitem Fortschrittsbalken für den aktuellen Teilnehmer (Parameter, Kontrolle, Stillstand, Nullpunkt, Speichern);
+  der bisherige Balken zeigt den Gesamtfortschritt.
+- Gerätewechsel setzt die Anzeigen des vorherigen Teilnehmers zurück (Filter-Optimierung, Kalibrierstatus, Teilnehmer-Fortschritt) und ist
+  gesperrt, solange Filter-Optimierung, Profilübertragung oder Profil speichern läuft.
+- Filter als eigene Profilgruppe (FM `0x2100:09`, FL `0x2100:04`): Haken „Filter“ beim Profil speichern – nach einer Filter-Optimierung des
+  verbundenen Geräts vorausgewählt, das Ergebnis (FM/FL, Datum, Gerät) wird im Profil vermerkt und lokal gemerkt – und beim Übertragen
+  (nur aktiv, wenn das Profil Filterwerte enthält; vorausgewählt bei Profilen aus einer Filter-Optimierung). „Konfiguration“ enthält FM/FL
+  in neuen Profilen nicht mehr; ältere Profile übertragen sie weiterhin mit „Konfiguration“.
+
 ## Wichtig
 Der Nullpunkt kann bei leeren Zielwaagen direkt bei der Übertragung kalibriert werden. Das Kalibriergewicht (Verstärkung)
 muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert werden. Eine Kalibrierung lässt sich nicht von einer Wägezelle auf eine andere kopieren.
@@ -70,4 +81,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`0636b415340c9a51d610e24de134a3812e25c22971a5d227d6040aa17b78dfad`
+`8556b5a454512c56a8f54d8f9fcee574e01fc6a2c5cbaba93d79e9313fbc80a1`
