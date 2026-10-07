@@ -29,6 +29,8 @@ Kalibrierdialog tut.
 - **Nullpunkt nur bei ruhiger Waage:** Das DAD143 nimmt „Calibrate Zero“ nur an, wenn das Signal während NT ms (`0x2100:0B`) um höchstens
   NR Teilungen (`0x2100:0A`) schwankte (Handbuch 9.3). Vor `0x2300:0A` wird das Brutto deshalb mindestens NT + 0,5 s (min. 2 s) gelesen; die
   zulässige Spanne ist min(NR, 2) Teilungen (Teilung = `0x2300:0C` × 10^-`0x2300:0B`). Sonst wird der Befehl nicht gesendet.
+- **Kein Nullpunkt ohne Messsignal:** Meldet der Qualifier A/D-Fehler, Über- oder Unterbereich (Bits 7/1/0), wird der Nullpunkt-Befehl nicht
+  gesendet (Übertragung und Kalibrierdialog), Hinweis „Wägezelle angeschlossen?“. Hardware 1023 ohne Wägezelle: Qualifier 128, A/D 0, mV/V 1.
 - **Diagnose bei abgelehntem Nullpunkt:** Vor dem Nullpunkt und nach einer Ablehnung werden Qualifier (`0x2900:0D`, Bits laut Handbuch 14.1.6),
   Gerätestatus (`0x2900:0A`), interner mV/V-Wert (`0x2900:12`) und A/D-Wert (`0x2900:07`) gelesen, ins Log geschrieben und an die Fehlermeldung angehängt.
 - **Fehlerhafte Waagen werden übersprungen:** Antwortet ein Gerät nicht (`Ecat: Timeout`), bekommt es keine weiteren Anfragen; lehnt es den
@@ -68,4 +70,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`d7801f66dcddf461f0b90b8792b55e54986210223895d70ee4e67bb903a112d1`
+`0636b415340c9a51d610e24de134a3812e25c22971a5d227d6040aa17b78dfad`

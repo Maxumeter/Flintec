@@ -89,6 +89,10 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   mem={};gross={1034:'—'};out=await transfer([1034],[true,true,true,true]);
   assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.match(out,/Brutto nicht lesbar/);
   gross={};
+  // A/D error (hardware 1023 without load cell: Qualifier 128, A/D 0): zero command not sent, device listed for retry.
+  mem={1037:{[key(0x2300,3)]:7,[key(0x2900,0x0D)]:128}};out=await transfer([1037],[true,true,true,true]);
+  assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.ok(!calls.some(c=>c.p==='/api/dashboard'),'no 5 s rest check without signal');
+  assert.match(out,/1037: 6 OK · 0 Fehler · Nullpunkt NICHT kalibriert – kein gültiges Messsignal – A\/D-Fehler \(Qualifier 128\)\. Wägezelle angeschlossen\?/);assert.match(out,/Fehlgeschlagen\/übersprungen: 1037/);
   // 5a. Zero calibration rejected by the device (hardware 1023: "Ecat SDO: General error" after 33 ms): that device is not saved, the run continues.
   mem={1023:{[key(0x2300,3)]:7,[key(0x2100,0x0A)]:5,[key(0x2100,0x0B)]:5000,[key(0x2900,0x0D)]:24,[key(0x2900,0x0A)]:1,[key(0x2900,0x12)]:1858,[key(0x2900,7)]:49651}};zeroRejects=1023;out=await transfer([1023,1027],[true,true,true,true]);zeroRejects=0;
   assert.match(out,/1023: 6 OK · 1 Fehler · Nullpunkt-Fehler · NICHT gespeichert/);assert.match(out,/General error/);
