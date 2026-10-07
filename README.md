@@ -6,7 +6,7 @@ Control Center for Flintec DAD143 EtherCAT devices.
 
 **v1.9.5**
 
-- Kalibrierübertragung auf mehrere DAD143 korrigiert: TAC-Freigabe vor jedem `0x2300`-Wert, Kalibrierbefehle `0x2300:04`/`0x2300:0A` werden nie übertragen, Zurücklesen und optionales EEPROM-Speichern.
+- Kalibrierübertragung auf mehrere DAD143 korrigiert: TAC-Freigabe vor jedem `0x2300`-Wert, Kalibrierbefehle `0x2300:04`/`0x2300:0A` werden nie übertragen, Zurücklesen optionale Nullpunkt-Kalibrierung leerer Zielwaagen und optionales EEPROM-Speichern.
 
 Details: [RELEASE_NOTES_v1.9.5.md](RELEASE_NOTES_v1.9.5.md)
 

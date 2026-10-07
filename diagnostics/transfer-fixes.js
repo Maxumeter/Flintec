@@ -13,6 +13,8 @@ async function f34(){if(!MC||!F)return M('Profil/Masterverbindung fehlt.');let a
 let ca=a.filter(e=>e.category==='cal');
 if(ca.length&&!confirm(`Kalibrier-Einstellwerte auf alle ausgewählten Geräte schreiben?\n\n${ca.map(PN).join('\n')}`+(x0.length?`\n\nNICHT übertragen (Kalibrierbefehle, nur pro Waage mit Gewicht ausführbar):\n${x0.map(PN).join('\n')}`:'')+'\n\nNullpunkt und Kalibriergewicht müssen danach auf jeder Waage einzeln kalibriert werden.'))return;
 if(!confirm(`${d.length} DAD143 · ${a.length} Parameter übertragen?`))return;
+// Zero calibration (0x2300:0x0A with 0, as in the calibration dialog) is the only calibration command the transfer may run, and only on request: each target scale must be empty.
+let zc=!!ca.length&&confirm(`Nullpunkt auf jeder Zielwaage kalibrieren?\n\nAlle ${d.length} Zielwaagen müssen vollständig entlastet sein und ruhig stehen.\nDie Verstärkung (Kalibriergewicht) wird nicht verändert.\n\nAbbrechen = Nullpunkt nicht kalibrieren.`);
 let sv=confirm('Nach erfolgreicher Übertragung und Kontrolle dauerhaft im EEPROM speichern?\n\nGespeichert wird nur auf Geräten ohne Schreib- oder Prüffehler.\nAbbrechen = nur flüchtig schreiben.');
 let o=[],n=0,t=d.length*a.length,orig=DA,cs=$('cs').textContent;clearInterval(T);
 for(let x of d){let okc=0,er=[],sk=0,w=[];try{await f35(x);$('cs').textContent=`Profilübertragung ${x}`;let cb=false;
@@ -20,7 +22,8 @@ for(let e of a){let p=P.find(y=>y.Index===e.index&&y.SubIndex===e.subIndex);PG(n
 let c=e.category==='cal';if(c&&cb){sk++;continue}
 // Calibration parameters need a fresh TAC unlock directly before every write, exactly like the calibration dialog (CWZ).
 try{c?await CWZ(p,e.value):await WP(p,e.value,1);okc++;w.push([p,e])}catch(z){er.push(`${PN(e)}: ${z.message}`);if(c)cb=true}}
+let zs='';if(zc){if(cb)zs=' · Nullpunkt übersprungen';else try{PG(n,t,`Gerät ${x} · Nullpunkt`);await CWZ(CP(0x2300,0x0A),0);zs=' · Nullpunkt kalibriert'}catch(z){er.push(`0x2300:0x0A Nullpunkt kalibrieren: ${z.message}`);zs=' · Nullpunkt-Fehler'}}
 let mm=[];for(let[p,e]of w)try{let v=await RP(p,1);if(String(v)!=String(e.value))mm.push(`${PN(e)}: ${v}≠${e.value}`)}catch(z){mm.push(`${PN(e)}: ${z.message}`)}
 let s='';if(sv){if(er.length||mm.length||sk)s=' · NICHT gespeichert';else try{await WP(CP(0x2004,2),0,1);s=' · EEPROM gespeichert'}catch(z){s=` · EEPROM-Fehler: ${z.message}`}}else s=' · nicht dauerhaft gespeichert';
-o.push(`${x}: ${okc} OK · ${er.length} Fehler`+(sk?` · ${sk} übersprungen`:'')+(mm.length?` · ${mm.length} Abweichungen`:'')+s);for(let z of[...er,...mm])o.push('   '+z)}catch(e){o.push(`${x}: ${e.message}`);n+=a.length}}
+o.push(`${x}: ${okc} OK · ${er.length} Fehler`+(sk?` · ${sk} übersprungen`:'')+(mm.length?` · ${mm.length} Abweichungen`:'')+zs+s);for(let z of[...er,...mm])o.push('   '+z)}catch(e){o.push(`${x}: ${e.message}`);n+=a.length}}
 $('cs').textContent=cs;if(orig&&B.some(x=>x.address===orig&&x.isDAD143))try{await f35(orig)}catch{}PG(t,t,'Fertig');$('pd').textContent=o.join('\n');M('Übertragen.');V()}

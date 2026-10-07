@@ -17,18 +17,22 @@ Kalibrierdialog tut.
 - Nach dem ersten Fehler im Kalibrierblock werden die übrigen Kalibrierwerte dieses Geräts übersprungen statt blind weiterzuschreiben.
 - Alle geschriebenen Werte werden zurückgelesen und verglichen; Abweichungen erscheinen im Ergebnis.
 - Optional dauerhaftes Speichern im EEPROM (`0x2004:02`), aber nur auf Geräten ohne Schreibfehler, übersprungene Werte oder Abweichungen.
+- **Optional Nullpunkt kalibrieren:** Nach einer eigenen Rückfrage („Alle Zielwaagen müssen vollständig entlastet sein“) wird auf jeder
+  Zielwaage nach den Einstellwerten der Nullpunkt kalibriert (`0x2300:0A` = 0 mit TAC-Freigabe, wie im Kalibrierdialog),
+  danach erst im EEPROM gespeichert. Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
 
 ### Wichtig
-Nullpunkt und Kalibriergewicht müssen nach der Übertragung auf **jeder Waage einzeln** mit dem Kalibrierdialog
-kalibriert werden. Eine Kalibrierung lässt sich nicht von einer Wägezelle auf eine andere kopieren.
+Der Nullpunkt kann bei leeren Zielwaagen direkt bei der Übertragung kalibriert werden. Das Kalibriergewicht (Verstärkung)
+muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert werden. Eine Kalibrierung lässt sich nicht von einer Wägezelle auf eine andere kopieren.
 
 ## Build und Prüfung
 - Gleiche Recovery-Methode wie v1.9.4 (Patch der geprüften v1.9.3-EXE, Oberfläche als PE-Abschnitt); der Build von v1.9.4 wurde vorab bitgenau reproduziert.
 - Maschinen-Code unverändert gegenüber v1.9.4. Geändert sind nur die Weboberfläche und die Versionsangaben.
 - `node diagnostics/test_frontend.cjs` (bestehende Regressionstests) bestanden.
 - Neu: `node diagnostics/test_transfer.cjs` mit simuliertem DAD143, das ohne vorherige TAC-Freigabe mit „local control“ ablehnt. Der Test schlägt mit der v1.9.4-Oberfläche fehl und besteht mit v1.9.5.
-- **Noch nicht an Hardware getestet.** Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
+- Hardware 07.10.2026: Übertragung auf 1014 ohne Nullpunkt-Schritt erfolgreich (15 OK, 0 Fehler, EEPROM gespeichert).
+- **Nullpunkt-Schritt noch nicht an Hardware getestet.** Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`547e2d1d8c4362b55a8dee0022caa1bd20f9207512b6346dd89486d238e35ecb`
+`593a13836daa97a912591e9ab70c5dce8426c8d9b42299ced8a7897cfefd0644`

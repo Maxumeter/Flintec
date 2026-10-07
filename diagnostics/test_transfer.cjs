@@ -37,7 +37,7 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   el('ic').checked=true;el('ik').checked=true;await run('f34()');return el('pd').textContent}
 (async()=>{
   // 1. Normal transfer with EEPROM save.
-  let out=await transfer([1013,1014],[true,true,true]);
+  let out=await transfer([1013,1014],[true,true,false,true]);
   const w=calls.filter(c=>c.p==='/api/write');
   assert.ok(!w.some(c=>c.q.index===0x2300&&(c.q.sub===4||c.q.sub===0x0A)),'calibration commands must never be written');
   assert.match(confirms[0],/NICHT übertragen[\s\S]*0x2300:0x04[\s\S]*0x2300:0x0A/);
@@ -45,19 +45,27 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   for(const d of [1013,1014]){assert.equal(mem[d][key(0x2300,7)],15000);assert.equal(mem[d][key(0x2300,0x11)],300);assert.equal(mem[d][key(0x2300,4)],undefined);assert.equal(mem[d][key(0x2004,2)],0)}
   assert.match(out,/1013: 7 OK · 0 Fehler · EEPROM gespeichert/);
   // 2. Unlock not accepted: calibration block stops after the first error, no EEPROM save.
-  tacBroken=true;mem={};out=await transfer([1020],[true,true,true]);
+  tacBroken=true;mem={};out=await transfer([1020],[true,true,true,true]);
   const c2=calls.filter(c=>c.p==='/api/write'&&c.q.index===0x2300&&c.q.sub!==3);
   assert.equal(c2.length,1,'only one failing calibration write per device');
-  assert.match(out,/1020: 1 OK · 1 Fehler · 5 übersprungen · NICHT gespeichert/);
+  assert.match(out,/1020: 1 OK · 1 Fehler · 5 übersprungen · Nullpunkt übersprungen · NICHT gespeichert/);
   assert.match(out,/local control/);
   assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.index===0x2004));
   tacBroken=false;
   // 3. Without EEPROM confirmation nothing is stored persistently.
-  mem={};out=await transfer([1021],[true,true,false]);
+  mem={};out=await transfer([1021],[true,true,false,false]);
   assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.index===0x2004));assert.match(out,/nicht dauerhaft gespeichert/);
-  // 4. Cancel on the calibration confirmation writes nothing.
+  // 4. Zero calibration on request: runs once per device with value 0, after the settings, with a TAC unlock directly before it, then EEPROM save.
+  mem={};out=await transfer([1023,1027],[true,true,true,true]);
+  assert.match(confirms[2],/Nullpunkt[\s\S]*entlastet/);
+  const w4=calls.filter(c=>c.p==='/api/write');
+  const z=w4.map((c,i)=>[c,i]).filter(([c])=>c.q.index===0x2300&&c.q.sub===0x0A);
+  assert.equal(z.length,2);for(const[c,i]of z){assert.equal(c.q.value,'0');assert.deepEqual([w4[i-1].q.index,w4[i-1].q.sub],[0x2300,3]);assert.deepEqual([w4[i+1].q.index,w4[i+1].q.sub,w4[i+2].q.index],[0x2300,3,0x2004])}
+  assert.ok(!w4.some(c=>c.q.index===0x2300&&c.q.sub===4),'gain is never calibrated by the transfer');
+  assert.match(out,/1023: 7 OK · 0 Fehler · Nullpunkt kalibriert · EEPROM gespeichert/);
+  // 5. Cancel on the calibration confirmation writes nothing.
   mem={};await transfer([1022],[false]);assert.ok(!calls.some(c=>c.p==='/api/write'));
-  // 5. New profiles do not contain calibration commands at all.
+  // 6. New profiles do not contain calibration commands at all.
   run('P=__P');assert.deepEqual(run("Q(0,1).map(p=>p.SubIndex)"),[1,2,7,8,0x0B,0x11]);
-  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, cancel writes nothing');
+  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, cancel writes nothing');
 })().catch(e=>{console.error(e);process.exitCode=1;});
