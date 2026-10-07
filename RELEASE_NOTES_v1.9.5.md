@@ -21,6 +21,8 @@ Kalibrierdialog tut.
   Zielwaage nach den Einstellwerten der Nullpunkt kalibriert (`0x2300:0A` = 0 mit TAC-Freigabe, wie im Kalibrierdialog),
   danach erst im EEPROM gespeichert. Der Vergleich der Werte läuft vor dem Nullpunkt, weil dieser `0x2300:02 Absolute zero`
   mit dem eigenen Wert der Zielwaage überschreibt; das Ergebnis zeigt die Änderung (z. B. `Absolute zero 1219→1313`). Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
+- **Abbruch bei Zeitüberschreitung:** Antwortet ein Gerät mit `Ecat: Timeout`, bekommt es keine weiteren Anfragen. Schlägt die
+  Nullpunkt-Kalibrierung fehl, wird die gesamte Übertragung beendet; die übrigen Geräte bleiben unberührt und werden im Ergebnis genannt.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
 
 ### Wichtig
@@ -33,7 +35,8 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - `node diagnostics/test_frontend.cjs` (bestehende Regressionstests) bestanden.
 - Neu: `node diagnostics/test_transfer.cjs` mit simuliertem DAD143, das ohne vorherige TAC-Freigabe mit „local control“ ablehnt. Der Test schlägt mit der v1.9.4-Oberfläche fehl und besteht mit v1.9.5.
 - Hardware 07.10.2026: Übertragung auf 1014 ohne Nullpunkt-Schritt erfolgreich (15 OK, 0 Fehler, EEPROM gespeichert).
-- Hardware 07.10.2026: Nullpunkt-Schritt auf 1014 erfolgreich; die Vorversion meldete danach fälschlich `0x2300:0x02 Absolute zero: 1313≠1219` und speicherte nicht (behoben). Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
+- Hardware 07.10.2026: Nullpunkt-Schritt auf 1014 erfolgreich; die Vorversion meldete danach fälschlich `0x2300:0x02 Absolute zero: 1313≠1219` und speicherte nicht (behoben).
+- Hardware 07.10.2026: Auf 1015 lief die Nullpunkt-Kalibrierung (`0x2300:0A`) in einen Timeout; danach antwortete das Gerät nicht mehr und stand auf SAFE-OP. Ursache offen; die Übertragung bricht in diesem Fall jetzt sofort ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`8d1d7a18553b62c4eb72fe143fdd4209ddbc31d42f80dd03a5997c23a38ace13`
+`e82d6f2f4de18a237b46e9d4a427c442a03fbcfdaf6efe8f910fcd66712e2de1`

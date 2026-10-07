@@ -3,7 +3,7 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const elements=new Map();
 function el(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){}},addEventListener(){},checked:false,scrollHeight:0});return elements.get(id);}
-let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false;
+let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false,zeroHangs=0,hung=new Set();
 const key=(i,s)=>`${i}:${s}`;
 const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error,Promise,performance,Blob,URL,
   setInterval:()=>1,clearInterval(){},setTimeout:()=>1,
@@ -13,10 +13,12 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
   fetch:async(p,o={})=>{const q=JSON.parse(o.body||'{}');calls.push({dev,p,q});
     const ok=v=>({ok:true,status:200,json:async()=>({ok:true,value:v})}),bad=e=>({ok:false,status:502,json:async()=>({ok:false,error:e})});
     if(p==='/api/select-device'){dev=q.address;mem[dev]??={[key(0x2300,3)]:7};return ok()}
+    if(hung.has(dev))return bad('SDO Read: HTTP 500: Ecat: Timeout');
     const m=mem[dev];
     if(p==='/api/read')return ok(m[key(q.index,q.sub)]??0);
     if(p==='/api/write'){const u=unlocked[dev];unlocked[dev]=false;
       if(q.index===0x2300&&q.sub===3){unlocked[dev]=!tacBroken;return ok()}
+      if(q.index===0x2300&&q.sub===0x0A&&dev===zeroHangs&&u){hung.add(dev);return bad('SDO Write: HTTP 500: Ecat: Timeout')}
       if((q.index===0x2300||(q.index===0x2004&&q.sub===2))&&!u)return bad('SDO Write: HTTP 500: Ecat SDO: Data cannot be transferred (local control)');
       m[key(q.index,q.sub)]=Number(q.value);if(q.index===0x2300&&q.sub===0x0A)m[key(0x2300,2)]=1313+dev%10;return ok()}
     return ok();
@@ -65,9 +67,18 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   // The zero calibration rewrites Absolute zero (0x2300:0x02); that is not a mismatch (seen on hardware: 1219 -> 1313).
   assert.match(out,/1023: 7 OK · 0 Fehler · Nullpunkt kalibriert \(Absolute zero 1219→1316\) · EEPROM gespeichert/);
   assert.equal(mem[1027][key(0x2300,2)],1320);
-  // 5. Cancel on the calibration confirmation writes nothing.
+  // 5. Zero calibration times out (hardware 1015): no further requests to that device, nothing saved, remaining devices untouched.
+  mem={};zeroHangs=1015;out=await transfer([1014,1015,1016],[true,true,true,true]);
+  const zi=calls.findIndex(c=>c.dev===1015&&c.p==='/api/write'&&c.q.sub===0x0A);
+  assert.ok(zi>0);assert.equal(calls.slice(zi+1).filter(c=>c.dev===1015&&c.p!=='/api/select-device').length,0,'no requests after the hang');
+  assert.ok(!calls.some(c=>c.dev===1016),'devices after a failed zero calibration are not touched');
+  assert.match(out,/1014: 7 OK · 0 Fehler · Nullpunkt kalibriert[^\n]*EEPROM gespeichert/);
+  assert.match(out,/1015: 7 OK · 1 Fehler · Nullpunkt-Fehler · Gerät antwortet nicht mehr/);
+  assert.match(out,/ÜBERTRAGUNG BEENDET[^\n]*1015[^\n]*Nicht bearbeitet: 1016/);
+  zeroHangs=0;hung.clear();
+  // 6. Cancel on the calibration confirmation writes nothing.
   mem={};await transfer([1022],[false]);assert.ok(!calls.some(c=>c.p==='/api/write'));
-  // 6. New profiles do not contain calibration commands at all.
+  // 7. New profiles do not contain calibration commands at all.
   run('P=__P');assert.deepEqual(run("Q(0,1).map(p=>p.SubIndex)"),[1,2,7,8,0x0B,0x11]);
-  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, cancel writes nothing');
+  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, stop after a failed zero calibration, cancel writes nothing');
 })().catch(e=>{console.error(e);process.exitCode=1;});
