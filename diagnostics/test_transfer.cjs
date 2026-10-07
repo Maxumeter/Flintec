@@ -31,7 +31,7 @@ const run=s=>vm.runInContext(s,context);
 run(fs.readFileSync('source/app.js','utf8').replace(/L\('START[^;]*;/,'').replace('init().catch(e=>M(e.message));',''));
 run('__f9=f9');
 const sub=[1,2,3,4,7,8,0x0A,0x0B,0x11];
-const P=[[0x2100,4,'Filter setting'],[0x2100,9,'Filter mode'],[0x2100,0x0A,'No motion range'],[0x2100,0x0B,'No motion time'],[0x2300,0x0C,'Display step size'],[0x2900,1,'Gross weight'],
+const P=[[0x2100,4,'Filter setting'],[0x2100,9,'Filter mode'],[0x2100,0x0A,'No motion range'],[0x2100,0x0B,'No motion time'],[0x2300,0x0C,'Display step size'],[0x2900,1,'Gross weight'],[0x2900,7,'A/D Sample'],[0x2900,0x0A,'Device status'],[0x2900,0x0D,'Qualifier'],[0x2900,0x12,'Internal mV/V value'],
   ...[1,2,3,4,5].map(s=>[0x2004,s,'Save '+s])].map(([Index,SubIndex,EntryName])=>({Index,SubIndex,EntryName})).concat([
   ...sub.map(s=>({Index:0x2300,SubIndex:s,EntryName:{3:'TAC',4:'Gain',0x0A:'Zero'}[s]||`Setting ${s}`}))])
   .map(p=>({...p,ValueBytes:4,DataTypeName:'INTEGER32',ReadOp:true,WriteOp:true,IndexHex:'0x'+p.Index.toString(16),SubIndexHex:'0x'+p.SubIndex.toString(16)}));
@@ -90,8 +90,9 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.match(out,/Brutto nicht lesbar/);
   gross={};
   // 5a. Zero calibration rejected by the device (hardware 1023: "Ecat SDO: General error" after 33 ms): that device is not saved, the run continues.
-  mem={};zeroRejects=1023;out=await transfer([1023,1027],[true,true,true,true]);zeroRejects=0;
+  mem={1023:{[key(0x2300,3)]:7,[key(0x2100,0x0A)]:5,[key(0x2100,0x0B)]:5000,[key(0x2900,0x0D)]:24,[key(0x2900,0x0A)]:1,[key(0x2900,0x12)]:1858,[key(0x2900,7)]:49651}};zeroRejects=1023;out=await transfer([1023,1027],[true,true,true,true]);zeroRejects=0;
   assert.match(out,/1023: 6 OK · 1 Fehler · Nullpunkt-Fehler · NICHT gespeichert/);assert.match(out,/General error/);
+  assert.match(out,/General error \| Qualifier 24 \[Nullpunktmitte, Stillstand\] · Status 1 · mV\/V-intern 1858 · A\/D 49651/);assert.match(el('log').textContent,/NULLPUNKT 1023 \| vorher Qualifier/);
   assert.match(out,/1027: 6 OK · 0 Fehler · Nullpunkt kalibriert[^\n]*EEPROM gespeichert/);assert.doesNotMatch(out,/ÜBERTRAGUNG BEENDET/);
   // 5b. Zero calibration times out (hardware 1015): no further requests to that device, it is skipped, the run continues and it can be retried.
   mem={};zeroHangs=new Set([1015]);out=await transfer([1014,1015,1016],[true,true,true,true]);
