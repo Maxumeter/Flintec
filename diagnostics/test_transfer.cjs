@@ -25,6 +25,7 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
   }});
 const run=s=>vm.runInContext(s,context);
 run(fs.readFileSync('source/app.js','utf8').replace(/L\('START[^;]*;/,'').replace('init().catch(e=>M(e.message));',''));
+run('__f9=f9');
 const sub=[1,2,3,4,7,8,0x0A,0x0B,0x11];
 const P=[{Index:0x2100,SubIndex:1,EntryName:'Filter'},{Index:0x2004,SubIndex:2,EntryName:'EEPROM'},
   ...sub.map(s=>({Index:0x2300,SubIndex:s,EntryName:{3:'TAC',4:'Gain',0x0A:'Zero'}[s]||`Setting ${s}`}))]
@@ -78,7 +79,11 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   zeroHangs=0;hung.clear();
   // 6. Cancel on the calibration confirmation writes nothing.
   mem={};await transfer([1022],[false]);assert.ok(!calls.some(c=>c.p==='/api/write'));
-  // 7. New profiles do not contain calibration commands at all.
+  // 7. No second dashboard poll or bus scan while one is still pending.
+  calls=[];run('f9=__f9;C=true;MC=true;Z=null');await Promise.all([run('f9()'),run('f9()'),run('f25()'),run('f25()')]);
+  assert.equal(calls.filter(c=>c.p==='/api/dashboard').length,1);assert.equal(calls.filter(c=>c.p.startsWith('/api/bus')).length,1);
+  calls=[];await run('f9()');assert.equal(calls.length,1,'guard released after completion');
+  // 8. New profiles do not contain calibration commands at all.
   run('P=__P');assert.deepEqual(run("Q(0,1).map(p=>p.SubIndex)"),[1,2,7,8,0x0B,0x11]);
-  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, stop after a failed zero calibration, cancel writes nothing');
+  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, stop after a failed zero calibration, cancel writes nothing, no overlapping polls/scans');
 })().catch(e=>{console.error(e);process.exitCode=1;});

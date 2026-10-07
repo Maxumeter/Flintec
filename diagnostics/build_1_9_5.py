@@ -29,6 +29,9 @@ html=html.replace("catch(e){L('Dashboard: '+e.message)}",'catch(e){}')
 html=html.replace("<button class=danger onclick=\"shutdown()\">Beenden</button>",'<button onclick="exportLog()">Log exportieren</button><span class=muted>Letzte 3000 Zeilen · Zugangsdaten werden nicht protokolliert</span><button class=danger onclick="shutdown()">Beenden</button>')
 html=replace_between(html,'const G=','async function f35(',(p/'transfer-fixes.js').read_text(encoding='utf-8'))
 html=html.replace('1.9.3','1.9.5')
+for f in ('f25','f9'):
+    assert html.count(f'async function {f}()')==2,f
+    html=html.replace(f'async function {f}()',f'async function {f}x()',1)
 html=html.replace('Flintec Control Center 1.9.4','Flintec Control Center 1.9.5')
 html=html.replace('init().catch(e=>M(e.message));',"L('START | Version 1.9.5 (Build "+hashlib.sha256((p/'transfer-fixes.js').read_bytes()).hexdigest()[:8]+") | SDO-Fehler zeigen den letzten Anfrageversuch.');init().catch(e=>M(e.message));")
 html=re.sub(r' {50,}','',html)

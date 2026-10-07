@@ -23,6 +23,7 @@ Kalibrierdialog tut.
   mit dem eigenen Wert der Zielwaage überschreibt; das Ergebnis zeigt die Änderung (z. B. `Absolute zero 1219→1313`). Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
 - **Abbruch bei Zeitüberschreitung:** Antwortet ein Gerät mit `Ecat: Timeout`, bekommt es keine weiteren Anfragen. Schlägt die
   Nullpunkt-Kalibrierung fehl, wird die gesamte Übertragung beendet; die übrigen Geräte bleiben unberührt und werden im Ergebnis genannt.
+- Kein zweiter Bus-Scan und keine neue Dashboard-Abfrage, solange die vorherige noch läuft (bei hängendem Master stauten sich sonst Anfragen über Minuten).
 - Die Startzeile im Log enthält eine Build-Kennung (`Version 1.9.5 (Build xxxxxxxx)`), damit Testläufe eindeutig einer EXE zugeordnet werden können.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
 
@@ -40,4 +41,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026: Auf 1015 lief die Nullpunkt-Kalibrierung (`0x2300:0A`) in einen Timeout; danach antwortete das Gerät nicht mehr und stand auf SAFE-OP. Ursache offen; die Übertragung bricht in diesem Fall jetzt sofort ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`6096e6f9d1a6b1cda47ffe0c46daf4464533a5435b2285691f961b4a23e31f8d`
+`7a35f82b237342a4117a0280c4efdfb0576527b674f36760459d69cbc3ddb09c`
