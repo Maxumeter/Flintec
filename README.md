@@ -4,7 +4,18 @@ Control Center for Flintec DAD143 EtherCAT devices.
 
 ## Aktuelle Version
 
-**v1.8.9**
+**v1.9.5**
+
+- Kalibrierübertragung auf mehrere DAD143 korrigiert: TAC-Freigabe vor jedem `0x2300`-Wert, Kalibrierbefehle `0x2300:04`/`0x2300:0A` werden nie übertragen, Zurücklesen und optionales EEPROM-Speichern.
+
+Details: [RELEASE_NOTES_v1.9.5.md](RELEASE_NOTES_v1.9.5.md)
+
+## Build
+
+Siehe [source/BUILD_RECOVERY.md](source/BUILD_RECOVERY.md). Die Basis-EXE `diagnostics/installed-1.9.3.exe` liegt im Release-Asset `Flintec_ControlCenter_1.9.4_RecoverySources.zip` und ist nicht im Repository.
+
+## Ältere Version v1.8.9
+
 
 ### Änderungen in v1.8.9
 - Fehlerbehandlung beim SDO-Schreiben korrigiert.
