@@ -35,6 +35,9 @@ html=html.replace(a,"$('cs').textContent='Prüfe Stillstand…';{let st=await ST
 a='<button class=primary onclick="f34()">Auf ausgewählte Geräte übertragen</button>'
 assert html.count(a)==1
 html=html.replace(a,a+'<button id=rt onclick="f36()" disabled>Fehlgeschlagene erneut übertragen</button>')
+a='Verstärkung → optional dauerhaft im EEPROM speichern.</p></div>'
+assert html.count(a)==1
+html=html.replace(a,a+'<div class=panel><h3>Filter-Optimierung</h3><p class=muted>Misst bei leerer Waage alle Filterstufen (Handbuch 9.4) und schlägt den schnellsten Filter vor, der die Schwankung im Ziel hält. Übernahme und Speichern nur nach Bestätigung.</p><div class=grid><div class=f><label>Ziel: max. Schwankung (d)</label><input id=fo_t type=number min=1 value=1></div><div class=f><label>Messzeit je Stufe (s)</label><input id=fo_s type=number min=3 value=8></div><div class=f><label>Filtermodus</label><select id=fo_m><option value=0>IIR (FM 0, Standard)</option><option value=1>FIR (FM 1)</option></select></div></div><div class=bar><button class=primary onclick="FO()">Filter optimieren</button><span id=fs class=muted>Bereit</span></div><pre id=fo>—</pre></div>')
 for f in ('f25','f9'):
     assert html.count(f'async function {f}()')==2,f
     html=html.replace(f'async function {f}()',f'async function {f}x()',1)

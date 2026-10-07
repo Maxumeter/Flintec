@@ -18,14 +18,17 @@ Kalibrierdialog tut.
 - Die Bestätigung listet die zu schreibenden und die ausgeschlossenen Kalibrierparameter mit Namen auf.
 - Nach dem ersten Fehler im Kalibrierblock werden die übrigen Kalibrierwerte dieses Geräts übersprungen statt blind weiterzuschreiben.
 - Alle geschriebenen Werte werden zurückgelesen und verglichen; Abweichungen erscheinen im Ergebnis.
-- Optional dauerhaftes Speichern im EEPROM (`0x2004:02`), aber nur auf Geräten ohne Schreibfehler, übersprungene Werte oder Abweichungen.
+- **Dauerhaftes Speichern je Parametergruppe (Handbuch 9.12):** Bisher wurde – auch in allen Vorversionen – nur `0x2004:02` (CS, Kalibrierung)
+  ausgelöst; übertragene Konfigurationswerte (Filter, Stillstand, Trigger …) waren nach einem Neustart weg. Jetzt wird je geschriebener Gruppe
+  gespeichert: Setup `0x2004:03` (WP), Füllparameter `0x2004:04`, Sollwerte `0x2004:05` (SS), Analogausgang `0x2004:01` (AS, nur DAD143.1,
+  Fehler nur als Hinweis) und zuletzt Kalibrierung `0x2004:02` (CS, erhöht TAC). Nur auf Geräten ohne Fehler, Abweichungen oder übersprungene Werte.
 - **Optional Nullpunkt kalibrieren:** Nach einer eigenen Rückfrage („Alle Zielwaagen müssen vollständig entlastet sein“) wird auf jeder
   Zielwaage nach den Einstellwerten der Nullpunkt kalibriert (`0x2300:0A` = 0 mit TAC-Freigabe, wie im Kalibrierdialog),
   danach erst im EEPROM gespeichert. Der Vergleich der Werte läuft vor dem Nullpunkt, weil dieser `0x2300:02 Absolute zero`
   mit dem eigenen Wert der Zielwaage überschreibt; das Ergebnis zeigt die Änderung (z. B. `Absolute zero 1219→1313`). Die Verstärkung wird nie verändert. Schlägt der Nullpunkt fehl, wird nicht gespeichert.
-- **Nullpunkt nur bei ruhiger Waage:** Vor `0x2300:0A` wird das Brutto ca. 2 s lang sechsmal gelesen. Schwankt es um mehr als zwei Stellen
-  der letzten Ziffer oder ist es nicht lesbar, wird der Befehl nicht gesendet (Übertragung: Hinweis im Ergebnis, Einstellwerte werden
-  trotzdem gespeichert; Kalibrierdialog: Abbruch vor dem Nullpunkt). Die Messwerte stehen im Log (`NULLPUNKT …`).
+- **Nullpunkt nur bei ruhiger Waage:** Das DAD143 nimmt „Calibrate Zero“ nur an, wenn das Signal während NT ms (`0x2100:0B`) um höchstens
+  NR Teilungen (`0x2100:0A`) schwankte (Handbuch 9.3). Vor `0x2300:0A` wird das Brutto deshalb mindestens NT + 0,5 s (min. 2 s) gelesen; die
+  zulässige Spanne ist min(NR, 2) Teilungen (Teilung = `0x2300:0C` × 10^-`0x2300:0B`). Sonst wird der Befehl nicht gesendet.
 - **Fehlerhafte Waagen werden übersprungen:** Antwortet ein Gerät nicht (`Ecat: Timeout`), bekommt es keine weiteren Anfragen; lehnt es den
   Nullpunkt ab oder ist es nicht ruhig, wird es nicht gespeichert. Die Übertragung läuft jeweils mit den übrigen Waagen weiter. Nur wenn in einem
   Lauf drei Waagen nicht auf die Nullpunkt-Kalibrierung antworten, wird der Rest nicht mehr bearbeitet (allgemeines Problem).
@@ -35,7 +38,13 @@ Kalibrierdialog tut.
 - Die Startzeile im Log enthält eine Build-Kennung (`Version 1.9.5 (Build xxxxxxxx)`), damit Testläufe eindeutig einer EXE zugeordnet werden können.
 - Das Log zeigt während der Übertragung `Kalibrierstatus=Profilübertragung <Adresse>` statt des Status der letzten Kalibrierung.
 
-### Wichtig
+#### Filter-Optimierung (neu, Reiter Kalibrierung)
+- Misst bei leerer Waage alle Filterstufen FL 1–8 (`0x2100:04`) im gewählten Modus FM (`0x2100:09`, IIR/FIR) in zwei Durchgängen (auf-/absteigend),
+  jeweils Spanne und Standardabweichung in Teilungen, und schlägt den schwächsten (schnellsten) Filter vor, der das Ziel einhält.
+- Werte werden nur flüchtig geschrieben; Übernahme mit Speichern (`0x2004:03`) erst nach Bestätigung, sonst wird die vorherige Einstellung
+  wiederhergestellt. Einschwingzeiten und Grenzfrequenzen laut Handbuch-Tabellen 9.4.2.
+
+## Wichtig
 Der Nullpunkt kann bei leeren Zielwaagen direkt bei der Übertragung kalibriert werden. Das Kalibriergewicht (Verstärkung)
 muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert werden. Eine Kalibrierung lässt sich nicht von einer Wägezelle auf eine andere kopieren.
 
@@ -51,4 +60,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`44dc38d811224ec3bfdbb449f415e0dba4bc2ecc9240218fe303804d8e103249`
+`8d41bbc2d2ed8e9078e6496bb3d5030f6b05ff4cccd83d298eed99a5b2b56afb`

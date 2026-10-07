@@ -7,11 +7,18 @@ function Q(c,k){return P.filter(p=>CR(p)&&CW(p)&&((c&&K(p)==='cfg')||(k&&K(p)===
 // Profiles saved by older versions still contain the calibration commands; filter them here as well.
 function E(){return F?F.parameters.filter(e=>!KX(e.index,e.subIndex,e.name)&&((e.category==='cfg'&&$('ic').checked)||(e.category==='cal'&&$('ik').checked))):[]}
 function EX(){return F?F.parameters.filter(e=>e.category==='cal'&&KX(e.index,e.subIndex,e.name)):[]}
-// The zero calibration (0x2300:0x0A) hung 1014 and 1015 sporadically (no SDO answer, then SAFE-OP), presumably while the weight was not at rest.
-// Send it only after the gross weight has been steady for about 2 s (6 readings, spread at most 2 steps of the last displayed digit).
-async function ST(){let v=[];for(let i=0;i<6;i++){if(i)await new Promise(r=>setTimeout(r,400));let g=String((await A('/api/dashboard')).gross??'').trim(),n=PF(g);if(!Number.isFinite(n))return{ok:false,why:`Brutto nicht lesbar (${g||'—'})`};v.push([n,g])}
-let dc=Math.max(...v.map(([,g])=>((g.match(/[.,](\d+)/)||[,''])[1]).length)),mn=Math.min(...v.map(x=>x[0])),mx=Math.max(...v.map(x=>x[0])),w=v.map(x=>x[1]).join(' ');
-return mx-mn<=2*10**-dc+1e-9?{ok:true,why:`Brutto ruhig: ${w}`}:{ok:false,why:`Brutto schwankt: ${w}`}}
+// The zero calibration (0x2300:0x0A) hung 1014 and 1015 sporadically (no SDO answer, then SAFE-OP) and 1023 rejected it ("General error").
+// Per manual 9.3 the DAD143 only accepts "Calibrate Zero" when the signal varied by at most NR increments (0x2100:0x0A) during NT ms (0x2100:0x0B).
+// Send it only after the gross weight has been steady for NT + 0.5 s (at least 2 s) within min(NR, 2) display steps (step = 0x2300:0x0C · 10^-0x2300:0x0B).
+const SL=ms=>new Promise(r=>setTimeout(r,ms));
+async function RD(i,s,d){let p=CP(i,s);if(!p)return d;try{let v=+await RP(p,1);return Number.isFinite(v)?v:d}catch(e){if(/Timeout/i.test(e.message))throw e;return d}}
+async function ST(){let nr=await RD(0x2100,0x0A,2),nt=await RD(0x2100,0x0B,1500),dp=await RD(0x2300,0x0B,0),ds=await RD(0x2300,0x0C,1),st=(ds||1)*10**-dp,tol=Math.min(Math.max(nr,1),2)*st+1e-9,k=Math.max(6,Math.ceil((Math.min(nt,10000)+500)/400)+1),v=[];
+for(let i=0;i<k;i++){if(i)await SL(400);let g=String((await A('/api/dashboard')).gross??'').trim(),n=PF(g);if(!Number.isFinite(n))return{ok:false,why:`Brutto nicht lesbar (${g||'—'})`};v.push(n)}
+let mn=Math.min(...v),mx=Math.max(...v),w=`${v.join(' ')} (Spanne ${+(mx-mn).toFixed(6)}, Grenze ${+tol.toFixed(6)}, NR ${nr} d, NT ${nt} ms)`;
+return mx-mn<=tol?{ok:true,why:`Brutto ruhig: ${w}`}:{ok:false,why:`Brutto schwankt: ${w}`}}
+// Save commands per parameter group (manual 9.12). Calibration (CS) increments the TAC and goes last.
+const SN={1:'Analog',2:'Kalibrierung',3:'Setup',4:'Füllparameter',5:'Sollwerte'},AN=[0x01,0x02,0x03,0x15,0x19];
+function SG(ps,zero){let g=new Set();for(let p of ps){let i=p.Index;if(i===0x2300||(i===0x2100&&p.SubIndex===0x12))g.add(2);if(i===0x2100&&AN.includes(p.SubIndex))g.add(1);else if(i===0x2100||i===0x2500||i===0x2d00)g.add(3);if(i===0x2200)g.add(4);if(i===0x2600||i===0x2680||i===0x2700||i===0x2800)g.add(5)}if(zero)g.add(2);return[3,4,5,1,2].filter(k=>g.has(k))}
 function PN(e){return`0x${e.index.toString(16).toUpperCase()}:0x${e.subIndex.toString(16).toUpperCase().padStart(2,'0')} ${e.name||''}`}
 async function f33(){if(!C||!F)return M('Profil und DAD143-Verbindung erforderlich.');let d=[];for(let e of E()){let p=P.find(x=>x.Index===e.index&&x.SubIndex===e.subIndex);if(p&&CR(p))try{let v=await RP(p,1);if(String(v)!=String(e.value))d.push(`${p.IndexHex}:${p.SubIndexHex} ${v}→${e.value}`)}catch{}}$('pd').textContent=d.join('\n')||'Gleich.'}
 // Devices that failed in the last run; they can be retried with f36 ("Fehlgeschlagene erneut übertragen").
@@ -35,9 +42,28 @@ try{c?await CWZ(p,e.value):await WP(p,e.value,1);okc++;w.push([p,e])}catch(z){er
 // Compare before the zero calibration: it rewrites 0x2300:0x02 Absolute zero with the target scale's own value.
 let mm=[];if(!dead)for(let[p,e]of w)try{let v=await RP(p,1);if(String(v)!=String(e.value))mm.push(`${PN(e)}: ${v}≠${e.value}`)}catch(z){mm.push(`${PN(e)}: ${z.message}`);if(TO.test(z.message)){dead=true;break}}
 let zs='';if(zc){if(cb||dead)zs=' · Nullpunkt übersprungen';else try{PG(n,t,`Gerät ${x} · Stillstand prüfen`);let st=await ST();L(`NULLPUNKT ${x} | ${st.why}`);if(!st.ok){zs=` · Nullpunkt NICHT kalibriert – Waage nicht ruhig (${st.why})`;throw 0}PG(n,t,`Gerät ${x} · Nullpunkt`);let az=CP(0x2300,2),a0=az?await RP(az,1).catch(()=>'?'):'?';await CWZ(CP(0x2300,0x0A),0);zok=true;zs=` · Nullpunkt kalibriert${az?` (Absolute zero ${a0}→${await RP(az,1).catch(()=>'?')})`:''}`}catch(z){if(z!==0){er.push(`0x2300:0x0A Nullpunkt kalibrieren: ${z.message}`);zs=' · Nullpunkt-Fehler';if(TO.test(z.message)){dead=true;stop=++zt>=3}}}}
-let s='';if(dead)s=' · Gerät antwortet nicht mehr, übersprungen (Waage prüfen bzw. neu starten)';else if(sv){if(er.length||mm.length||sk)s=' · NICHT gespeichert';else try{await WP(CP(0x2004,2),0,1);s=' · EEPROM gespeichert'}catch(z){s=` · EEPROM-Fehler: ${z.message}`}}else s=' · nicht dauerhaft gespeichert';
+let s='';if(dead)s=' · Gerät antwortet nicht mehr, übersprungen (Waage prüfen bzw. neu starten)';else if(sv){if(er.length||mm.length||sk)s=' · NICHT gespeichert';else{let g=SG(w.map(([p])=>p),zok&&zc),ok=[],bad=[];for(let k of g){let q=CP(0x2004,k);if(!q)continue;try{await WP(q,0,1);ok.push(SN[k])}catch(z){(k===1?o:er).push(`   ${SN[k]} (0x2004:0${k}): ${z.message}`);if(k!==1)bad.push(SN[k])}}s=bad.length?` · EEPROM-Fehler (${bad.join(', ')})`:` · EEPROM gespeichert (${ok.join(', ')})`}}else s=' · nicht dauerhaft gespeichert';
 o.push(`${x}: ${okc} OK · ${er.length} Fehler`+(sk?` · ${sk} übersprungen`:'')+(mm.length?` · ${mm.length} Abweichungen`:'')+zs+s);for(let z of[...er,...mm])o.push('   '+z);if(dead||er.length||mm.length||sk||!zok)FD.push(x);if(stop){let r=d.slice(xi+1);FD.push(...r);o.push(`ÜBERTRAGUNG BEENDET: ${zt} Waagen ohne Antwort auf die Nullpunkt-Kalibrierung. EtherCAT-Zustand prüfen (z. B. SAFE-OP).`+(r.length?` Nicht bearbeitet: ${r.join(', ')}`:''));break}}catch(e){o.push(`${x}: ${e.message}`);FD.push(x);n+=a.length}}
 if(FD.length)o.push(`\nFehlgeschlagen/übersprungen: ${FD.join(', ')}\nNach Prüfung (ggf. Waage neu starten) mit „Fehlgeschlagene erneut übertragen“ wiederholen.`);RB();
 $('cs').textContent=cs;if(orig&&B.some(x=>x.address===orig&&x.isDAD143))try{await f35(orig)}catch{}PG(t,t,stop?'Abgebrochen':'Fertig');$('pd').textContent=o.join('\n');M(stop?'Übertragung abgebrochen – siehe Ergebnis.':'Übertragen.');V()}
 // While the master is slow (bus scan took 176 s on 2026-10-07), do not queue further scans or dashboard polls behind a pending one.
 let BZ=0,DZ=0;async function f25(){if(BZ)return M('Bus wird bereits eingelesen – bitte warten.');BZ=1;try{await f25x()}finally{BZ=0}}async function f9(){if(DZ)return;DZ=1;try{await f9x()}finally{DZ=0}}
+
+// Filter optimisation (manual 9.4): try every filter level FL 1..8 (0x2100:0x04) in the chosen mode FM (0x2100:0x09) volatile, measure the
+// gross weight of the empty scale and pick the weakest (fastest) level whose peak-to-peak stays within the target. Two passes (up, down) so
+// that a disturbance during one measurement does not decide alone. Nothing is saved without confirmation; cancel restores the old values.
+const FT={0:[0,55,122,242,322,482,963,1923,3847],1:[0,47,93,140,187,233,280,327,373]},FC={0:['–',18,8,4,3,2,1,0.5,0.25],1:['–',19.7,9.8,6.5,4.9,3.9,3.2,2.8,2.5]};
+async function FO(){if(!C)return M('DAD143 auswählen.');let fl=CP(0x2100,4),fm=CP(0x2100,9),gp=CP(0x2900,1);if(!fl||!fm||!gp)return M('Filterparameter nicht gefunden.');
+let tg=Math.max(1,PF($('fo_t').value)||1),sec=Math.max(3,PF($('fo_s').value)||8),m=+$('fo_m').value||0,o=[],x=DA;
+if(!confirm(`Filter-Optimierung für DAD143 ${x}\n\nDie Waage muss leer sein und darf während der Messung nicht berührt werden.\nGetestet werden Filterstufen 1–8 (${m?'FIR':'IIR'}), je ${sec} s in zwei Durchgängen (ca. ${Math.ceil(16*(sec*1.3+2)/60)} min).\nDie Werte werden nur flüchtig geschrieben; gespeichert wird erst nach Bestätigung.`))return;
+clearInterval(T);let F0=+await RP(fl,1),M0=+await RP(fm,1),dp=await RD(0x2300,0x0B,0),ds=await RD(0x2300,0x0C,1),d=(ds||1)*10**-dp,R={},cs=$('cs').textContent,done=false;
+const show=()=>{$('fo').textContent=[`DAD143 ${x} · Ziel ≤ ${tg} d (1 d = ${+d.toFixed(6)}) · vorher FM ${M0} / FL ${F0}`,'FL  Grenzfreq. Hz  Einschwingzeit ms  Spanne d (1./2. Durchgang)  Std.-Abw. d',...Object.keys(R).sort((a,b)=>a-b).map(k=>`${k.padStart(2)}  ${String(FC[m][k]).padStart(14)}  ${String(FT[m][k]).padStart(17)}  ${R[k].pp.map(v=>v.toFixed(1)).join(' / ').padStart(26)}  ${Math.max(...R[k].sd).toFixed(2).padStart(11)}`),...o].join('\n')};
+try{$('cs').textContent='Filter-Optimierung';if(M0!==m)await WP(fm,m,1);
+for(let pass=0;pass<2;pass++)for(let k of(pass?[8,7,6,5,4,3,2,1]:[1,2,3,4,5,6,7,8])){$('fs').textContent=`Durchgang ${pass+1}/2 · FL ${k}`;await WP(fl,k,1);await SL(Math.max(1000,2*FT[m][k]+500));
+let v=[];for(let i=0;i<sec*10;i++){v.push(+await RP(gp,1));await SL(100)}let mn=Math.min(...v),mx=Math.max(...v),av=v.reduce((a,b)=>a+b,0)/v.length,sd=Math.sqrt(v.reduce((a,b)=>a+(b-av)**2,0)/v.length);
+(R[k]??={pp:[],sd:[]}).pp.push((mx-mn)/d);R[k].sd.push(sd/d);L(`FILTER ${x} | FM ${m} FL ${k} | Spanne ${((mx-mn)/d).toFixed(1)} d | Std ${(sd/d).toFixed(2)} d | n ${v.length}`);show()}
+let best=[1,2,3,4,5,6,7,8].find(k=>Math.max(...R[k].pp)<=tg+1e-9);
+o.push('',best?`Vorschlag: FL ${best} (schwächster Filter innerhalb ${tg} d, Einschwingzeit ${FT[m][best]} ms).`:`Kein Filter erreicht ${tg} d – die Ursache ist vermutlich mechanisch/elektrisch (Vibration, Luftzug, Schirmung). Vorschlag: FL 8.`);best??=8;show();
+if(confirm(`${o.at(-1)}\n\nFM ${m} / FL ${best} übernehmen und dauerhaft speichern (Setup, 0x2004:03)?\nAbbrechen = vorherige Einstellung FM ${M0} / FL ${F0} wiederherstellen.`)){await WP(fl,best,1);await WP(CP(0x2004,3),0,1);done=true;o.push(`Übernommen und gespeichert: FM ${m} / FL ${best}.`);L(`FILTER ${x} | gespeichert FM ${m} FL ${best}`)}
+else o.push('Nicht übernommen.')}catch(e){o.push('Abgebrochen: '+e.message);M(e.message)}
+finally{if(!done){try{await WP(fl,F0,1);if(M0!==m)await WP(fm,M0,1);o.push(`Wiederhergestellt: FM ${M0} / FL ${F0} (nicht gespeichert, EEPROM unverändert).`)}catch(e){o.push('Wiederherstellen fehlgeschlagen: '+e.message)}}$('cs').textContent=cs;$('fs').textContent=done?'Gespeichert':'Bereit';show();V()}}
