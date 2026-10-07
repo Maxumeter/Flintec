@@ -3,10 +3,10 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const elements=new Map();
 function el(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){}},addEventListener(){},checked:false,scrollHeight:0});return elements.get(id);}
-let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false,zeroHangs=0,hung=new Set();
+let dev=0,mem={},unlocked={},calls=[],confirms=[],answers=[],tacBroken=false,zeroHangs=0,hung=new Set(),gross={};
 const key=(i,s)=>`${i}:${s}`;
 const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error,Promise,performance,Blob,URL,
-  setInterval:()=>1,clearInterval(){},setTimeout:()=>1,
+  setInterval:()=>1,clearInterval(){},setTimeout:f=>{f();return 1},
   document:{getElementById:el,querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>({click(){}})},
   window:{addEventListener(){}},navigator:{sendBeacon(){}},alert(){},
   confirm:m=>{confirms.push(m);return answers.length?answers.shift():true},
@@ -14,6 +14,7 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
     const ok=v=>({ok:true,status:200,json:async()=>({ok:true,value:v})}),bad=e=>({ok:false,status:502,json:async()=>({ok:false,error:e})});
     if(p==='/api/select-device'){dev=q.address;mem[dev]??={[key(0x2300,3)]:7};return ok()}
     if(hung.has(dev))return bad('SDO Read: HTTP 500: Ecat: Timeout');
+    if(p==='/api/dashboard'){const g=gross[dev];return {ok:true,status:200,json:async()=>({ok:true,gross:Array.isArray(g)?g.shift()??'0.0':(g??'0.0')})}}
     const m=mem[dev];
     if(p==='/api/read')return ok(m[key(q.index,q.sub)]??0);
     if(p==='/api/write'){const u=unlocked[dev];unlocked[dev]=false;
@@ -69,7 +70,19 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   // The zero calibration rewrites Absolute zero (0x2300:0x02); that is not a mismatch (seen on hardware: 1219 -> 1313).
   assert.match(out,/1023: 6 OK · 0 Fehler · Nullpunkt kalibriert \(Absolute zero 0→1316\) · EEPROM gespeichert/);
   assert.equal(mem[1027][key(0x2300,2)],1320);
-  // 5. Zero calibration times out (hardware 1015): no further requests to that device, nothing saved, remaining devices untouched.
+  // 5. Weight not at rest: the zero calibration command is not sent, settings are still saved.
+  mem={};gross={1030:['0.0','0.4','0.1','0.0','0.3','0.0']};out=await transfer([1030],[true,true,true,true]);
+  assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A),'no zero command while the weight moves');
+  assert.match(out,/1030: 6 OK · 0 Fehler · Nullpunkt NICHT kalibriert – Waage nicht ruhig \(Brutto schwankt: 0.0 0.4 0.1 0.0 0.3 0.0\) · EEPROM gespeichert/);
+  assert.match(el('log').textContent,/NULLPUNKT 1030 \| Brutto schwankt/);
+  // Steady within two steps of the last digit: zero command is sent.
+  mem={};gross={1031:['0.1','0.2','0.1','0.0','0.2','0.1']};out=await transfer([1031],[true,true,true,true]);
+  assert.ok(calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.match(out,/1031: 6 OK · 0 Fehler · Nullpunkt kalibriert/);
+  // Gross not readable: no zero command.
+  mem={};gross={1034:'—'};out=await transfer([1034],[true,true,true,true]);
+  assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.sub===0x0A));assert.match(out,/Brutto nicht lesbar/);
+  gross={};
+  // 5b. Zero calibration times out (hardware 1015): no further requests to that device, nothing saved, remaining devices untouched.
   mem={};zeroHangs=1015;out=await transfer([1014,1015,1016],[true,true,true,true]);
   const zi=calls.findIndex(c=>c.dev===1015&&c.p==='/api/write'&&c.q.sub===0x0A);
   assert.ok(zi>0);assert.equal(calls.slice(zi+1).filter(c=>c.dev===1015&&c.p!=='/api/select-device').length,0,'no requests after the hang');
@@ -86,5 +99,5 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   calls=[];await run('f9()');assert.equal(calls.length,1,'guard released after completion');
   // 8. New profiles do not contain calibration commands at all.
   run('P=__P');assert.deepEqual(run("Q(0,1).map(p=>p.SubIndex)"),[1,7,8,0x0B,0x11]);
-  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, stop after a failed zero calibration, cancel writes nothing, no overlapping polls/scans');
+  console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, zero only when the weight is at rest, stop after a failed zero calibration, cancel writes nothing, no overlapping polls/scans');
 })().catch(e=>{console.error(e);process.exitCode=1;});

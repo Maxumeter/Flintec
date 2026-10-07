@@ -29,6 +29,9 @@ html=html.replace("catch(e){L('Dashboard: '+e.message)}",'catch(e){}')
 html=html.replace("<button class=danger onclick=\"shutdown()\">Beenden</button>",'<button onclick="exportLog()">Log exportieren</button><span class=muted>Letzte 3000 Zeilen · Zugangsdaten werden nicht protokolliert</span><button class=danger onclick="shutdown()">Beenden</button>')
 html=replace_between(html,'const G=','async function f35(',(p/'transfer-fixes.js').read_text(encoding='utf-8'))
 html=html.replace('1.9.3','1.9.5')
+a="$('cs').textContent='Kalibriere Nullpunkt…';await CWZ(CP(0x2300,0x0A),0);"
+assert html.count(a)==1
+html=html.replace(a,"$('cs').textContent='Prüfe Stillstand…';{let st=await ST();L('NULLPUNKT | '+st.why);if(!st.ok)throw Error('Waage nicht ruhig – Nullpunkt nicht kalibriert. '+st.why)}"+a)
 for f in ('f25','f9'):
     assert html.count(f'async function {f}()')==2,f
     html=html.replace(f'async function {f}()',f'async function {f}x()',1)
