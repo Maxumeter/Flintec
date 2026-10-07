@@ -30,7 +30,7 @@ html=html.replace("<button class=danger onclick=\"shutdown()\">Beenden</button>"
 html=replace_between(html,'const G=','async function f35(',(p/'transfer-fixes.js').read_text(encoding='utf-8'))
 html=html.replace('1.9.3','1.9.5')
 html=html.replace('Flintec Control Center 1.9.4','Flintec Control Center 1.9.5')
-html=html.replace('init().catch(e=>M(e.message));',"L('START | Version 1.9.5 | SDO-Fehler zeigen den letzten Anfrageversuch.');init().catch(e=>M(e.message));")
+html=html.replace('init().catch(e=>M(e.message));',"L('START | Version 1.9.5 (Build "+hashlib.sha256((p/'transfer-fixes.js').read_bytes()).hexdigest()[:8]+") | SDO-Fehler zeigen den letzten Anfrageversuch.');init().catch(e=>M(e.message));")
 html=re.sub(r' {50,}','',html)
 (source/'index.html').write_text(html,encoding='utf-8')
 js=html.split('<script>',1)[1].split('</script>',1)[0]
