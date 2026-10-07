@@ -17,7 +17,7 @@ const context=vm.createContext({console,Date,Math,Number,String,Array,JSON,Error
     if(p==='/api/dashboard'){const g=gross[dev];return {ok:true,status:200,json:async()=>({ok:true,gross:Array.isArray(g)?g.shift()??'0.0':(g??'0.0')})}}
     const m=mem[dev];
     // Gross weight noise shrinks with the filter level FL (0x2100:04).
-    if(p==='/api/read'&&q.index===0x2900&&q.sub===1){const a={1:0.8,2:0.5,3:0.3,4:0.2,5:0.1,6:0.05,7:0.02,8:0.01}[m[key(0x2100,4)]]??1;m.t=(m.t||0)+1;return ok(m.t%2?a:-a)}
+    if(p==='/api/read'&&q.index===0x2900&&q.sub===1){const a={1:0.8,2:0.5,3:0.3,4:0.2,5:0.1,6:0.05,7:0.02,8:0.01}[m[key(0x2100,4)]]??1;m.t=(m.t||0)+1;const sp=m.spike&&m[key(0x2100,4)]===m.spike.fl&&!m.spike.done&&m.t%7===0?(m.spike.n=(m.spike.n||0)+1,m.spike.n>=3&&(m.spike.done=true),5):0;return ok(([a,-a,-a,a][m.t%4])+(m.drift||0)*m.t+sp)}
     if(p==='/api/read')return ok(m[key(q.index,q.sub)]??0);
     if(p==='/api/write'){const u=unlocked[dev];unlocked[dev]=false;
       if(q.index===0x2300&&q.sub===3){unlocked[dev]=!tacBroken;return ok()}
@@ -123,10 +123,15 @@ async function transfer(devs,ans){calls=[];confirms=[];answers=[...ans];
   el('fo_t').value='1';el('fo_s').value='3';el('fo_m').value='0';calls=[];confirms=[];answers=[true,true];await run('FO()');
   assert.match(el('fo').textContent,/Vorschlag: FL 6/);assert.equal(mem[1050][key(0x2100,4)],6);
   assert.deepEqual(calls.filter(c=>c.p==='/api/write'&&c.q.index===0x2004).map(c=>c.q.sub),[3],'only the setup group is saved');
-  assert.match(el('log').textContent,/FILTER 1050 \| FM 0 FL 5 \| Spanne 2.0 d/);assert.match(confirms[1],/FL 6 übernehmen/);
+  assert.match(el('log').textContent,/FILTER 1050 \| FM 0 FL 5 \| Unruhe 2.0 d/);assert.match(confirms[1],/FL 6 übernehmen/);
   mem[1050][key(0x2100,4)]=4;calls=[];answers=[true,false];await run('FO()');
   assert.equal(mem[1050][key(0x2100,4)],4,'restored');assert.ok(!calls.some(c=>c.p==='/api/write'&&c.q.index===0x2004));assert.match(el('fo').textContent,/Wiederhergestellt: FM 0 \/ FL 4/);
   // Nothing reaches the target: FL 8 proposed with a hint at mechanical causes.
-  el('fo_t').value='1';mem[1050][key(0x2100,4)]=4;mem[1050][key(0x2300,0x0B)]=3;answers=[true,false];await run('FO()');assert.match(el('fo').textContent,/Kein Filter erreicht 1 d/);
+  el('fo_t').value='1';mem[1050][key(0x2100,4)]=4;mem[1050][key(0x2300,0x0B)]=3;answers=[true];calls=[];confirms=[];await run('FO()');assert.match(el('fo').textContent,/Kein Filter erreicht 1 d[^\n]*keine Änderung/);
+  assert.equal(confirms.filter(c=>/übernehmen/.test(c)).length,0,'no adoption offered without a suitable level');assert.equal(mem[1050][key(0x2100,4)],4);
+  // Slow drift and a disturbance in one pass (seen on 1022) do not decide: detrended noise, the better pass counts.
+  mem[1050][key(0x2300,0x0B)]=1;mem[1050][key(0x2100,4)]=4;mem[1050].drift=0.002;mem[1050].spike={fl:6};answers=[true,true];await run('FO()');
+  assert.match(el('fo').textContent,/Vorschlag: FL 6/);assert.match(el('fo').textContent,/\n 6 [^\n]*!/);assert.equal(mem[1050][key(0x2100,4)],6);
+  mem[1050].drift=0;mem[1050].spike=null;
   console.log('PASS: calibration commands excluded, TAC unlock per calibration write, stop after first error, read-back, EEPROM save only on clean devices, zero calibration only on request, zero only when the weight is at rest, skip failed devices and retry them, stop after three zero calibrations without answer, cancel writes nothing, no overlapping polls/scans, group-wise EEPROM save, filter optimisation');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -41,6 +41,10 @@ Kalibrierdialog tut.
 #### Filter-Optimierung (neu, Reiter Kalibrierung)
 - Misst bei leerer Waage alle Filterstufen FL 1–8 (`0x2100:04`) im gewählten Modus FM (`0x2100:09`, IIR/FIR) in zwei Durchgängen (auf-/absteigend),
   jeweils Spanne und Standardabweichung in Teilungen, und schlägt den schwächsten (schnellsten) Filter vor, der das Ziel einhält.
+- Bewertung: Unruhe = Spanne P5–P95 nach Abzug der linearen Drift; maßgeblich ist der bessere der beiden Durchgänge (Störung im anderen wird
+  mit „!“ markiert), Drift wird getrennt angezeigt. Erreicht keine Stufe das Ziel, wird nichts vorgeschlagen und nichts geändert, mit Hinweis
+  auf die wahrscheinliche Ursache (langsame Drift bzw. mechanisch/elektrisch). Hardware 1022: Einzeldurchgänge mit 48–51 d gegenüber 3–7 d im
+  anderen Durchgang, selbst FL 8 bei 5 d – die erste Fassung hatte daraus fälschlich FL 8 vorgeschlagen.
 - Werte werden nur flüchtig geschrieben; Übernahme mit Speichern (`0x2004:03`) erst nach Bestätigung, sonst wird die vorherige Einstellung
   wiederhergestellt. Einschwingzeiten und Grenzfrequenzen laut Handbuch-Tabellen 9.4.2.
 
@@ -60,4 +64,4 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Hardware 07.10.2026 (Build 2b35233e): Nullpunkt mit Stillstandsprüfung auf 1014, 1015, 1016, 1021, 1022 erfolgreich und gespeichert (Absolute zero 1312, 1317, 1517, 1553, 1874). 1023 lehnte den Nullpunkt nach 33 ms mit `General error` ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`8d41bbc2d2ed8e9078e6496bb3d5030f6b05ff4cccd83d298eed99a5b2b56afb`
+`fd554ad7d1b6683893808037d17c5d30dc34d7002e8994b0185c7d349e9656f6`
