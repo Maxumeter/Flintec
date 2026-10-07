@@ -12,6 +12,8 @@ Kalibrierdialog tut.
   (Nullpunkt kalibrieren) lösen auf dem Gerät eine Kalibrierung mit der aktuell aufliegenden Last aus.
   Ein Übertragen hätte jede Zielwaage falsch kalibriert. Zusätzlich werden `0x2300`-Einträge, deren Name
   auf calib/gain/span/adjust/command/execute lautet, ausgeschlossen. Das gilt auch für Profile aus älteren Versionen.
+- **Der Nullpunkt der Waage wird nicht übertragen:** `0x2300:02 Absolute zero` ist waagenspezifisch und bleibt auf der Zielwaage
+  erhalten (bzw. wird durch die optionale Nullpunkt-Kalibrierung neu gesetzt).
 - Vor jedem übertragenen `0x2300`-Einstellwert wird die TAC-Freigabe frisch gesetzt (gleicher Ablauf wie im Kalibrierdialog).
 - Die Bestätigung listet die zu schreibenden und die ausgeschlossenen Kalibrierparameter mit Namen auf.
 - Nach dem ersten Fehler im Kalibrierblock werden die übrigen Kalibrierwerte dieses Geräts übersprungen statt blind weiterzuschreiben.
@@ -38,7 +40,8 @@ muss bei Bedarf auf **jeder Waage einzeln** mit dem Kalibrierdialog kalibriert w
 - Neu: `node diagnostics/test_transfer.cjs` mit simuliertem DAD143, das ohne vorherige TAC-Freigabe mit „local control“ ablehnt. Der Test schlägt mit der v1.9.4-Oberfläche fehl und besteht mit v1.9.5.
 - Hardware 07.10.2026: Übertragung auf 1014 ohne Nullpunkt-Schritt erfolgreich (15 OK, 0 Fehler, EEPROM gespeichert).
 - Hardware 07.10.2026: Nullpunkt-Schritt auf 1014 erfolgreich; die Vorversion meldete danach fälschlich `0x2300:0x02 Absolute zero: 1313≠1219` und speicherte nicht (behoben).
+- Hardware 07.10.2026: Übertragung ohne Nullpunkt auf 1015, 1016, 1020 erfolgreich und gespeichert (mit Build beb65b79, damals noch inkl. Absolute zero der Quellwaage).
 - Hardware 07.10.2026: Auf 1015 lief die Nullpunkt-Kalibrierung (`0x2300:0A`) in einen Timeout; danach antwortete das Gerät nicht mehr und stand auf SAFE-OP. Ursache offen; die Übertragung bricht in diesem Fall jetzt sofort ab. Erst mit einer einzelnen Waage prüfen, bevor auf alle übertragen wird.
 
 SHA-256 `Flintec_ControlCenter_1.9.5_Portable.exe` / `Flintec_ControlCenter_App.exe`:
-`7a35f82b237342a4117a0280c4efdfb0576527b674f36760459d69cbc3ddb09c`
+`3437b735992f5003be5163bcc4a9a48caaf7c68dfe523895fd34cf53a6a25726`
