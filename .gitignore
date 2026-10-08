@@ -1,0 +1,4 @@
+diagnostics/installed-1.9.3.exe
+diagnostics/python-libs/
+release-*/
+__pycache__/
