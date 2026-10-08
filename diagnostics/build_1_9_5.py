@@ -46,6 +46,11 @@ for a,n in [('<label class=check><input id=pk type=checkbox> Kalibrierung</label
   ('function f5(master,device,address=0){','function f5x(master,device,address=0){')]:
     assert html.count(a)==1,a
     html=html.replace(a,n)
+html=html.replace('<td>${esc(x.state)}</td>','<td>${esc(BS(x))}</td>')
+for a,n in [('<input class="dev" type="checkbox" checked value="${x.address}">','<input class="dev" type="checkbox" ${NP(x)?\'\':\'checked\'} value="${x.address}">'),
+  ("$('busStatus').textContent=`${B.length} EtherCAT-Geräte · ${B.filter(x=>x.isDAD143).length} DAD143`","$('busStatus').textContent=`${B.length} EtherCAT-Geräte · ${B.filter(x=>x.isDAD143).length} DAD143`+(B.some(NP)?` · ${B.filter(NP).length} nicht verbunden`:'')")]:
+    assert html.count(a)==1,a
+    html=html.replace(a,n)
 for f in ('f25','f9'):
     assert html.count(f'async function {f}()')==2,f
     html=html.replace(f'async function {f}()',f'async function {f}x()',1)

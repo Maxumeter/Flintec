@@ -92,3 +92,7 @@ function UFO(){let x=FOS[DA],b=$('pfo'),l=$('pfol');if(b)b.checked=!!x;if(l)l.te
 function CLR(prev){$('fo').textContent='—';let b=$('fp');if(b)b.value=0;$('fs').textContent='Bereit';$('cs').textContent='Bereit';PG2(0,0,'–');UFO();L(`GERÄTEWECHSEL | Anzeigen von DAD143 ${prev||'-'} zurückgesetzt`)}
 async function f26(a,b){if(BUSY)return M(`${BUSY} läuft – Gerätewechsel gesperrt.`);let p=DA;try{return await f26x(a,b)}finally{if(DA!==p)CLR(p)}}
 function f5(m,d,a=0){f5x(m,d,a);UFO()}
+// The backend reports configured but absent slaves as "Erreichbar" while ctrlX shows "Nicht verbunden" (2026-10-08, 1004 ff.). Show it like ctrlX
+// and do not preselect such DAD143 for a profile transfer.
+function NP(x){return!x.status&&/nicht vorhanden/i.test(x.diagnostics||'')}
+function BS(x){return NP(x)?'Nicht verbunden':x.state}
