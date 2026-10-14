@@ -70,6 +70,7 @@ Private gTzOffset As Double             ' Stunden zu UTC
 Private gFenster As Long                ' Fenster gleitender Median
 Private gHistVon As Double, gHistBis As Double, gHistSchritt As Double
 Private gOverrangeIstIO As Boolean      ' Overrange bei ISO = IO
+Private kFormat(1 To N_KAN) As String   ' Zahlenformat je Kanal (aus Groessenordnung der Werte)
 
 ' ---- Rohdaten im Speicher -------------------------------------------------------
 Private nZ As Long
@@ -97,6 +98,7 @@ Public Sub Start_Auswertung()
     InitFarben
     EinstellungenAnlegen False
     If Not CsvImportieren(CStr(datei)) Then GoTo Ende
+    EinheitenAutomatisch
 
     AuswertungAusfuehren CStr(datei)
     Worksheets(WS_UEB).Activate
@@ -195,6 +197,7 @@ End Sub
 '===============================================================================
 Private Sub AuswertungAusfuehren(ByVal quelle As String)
     EinstellungenLesen
+    FormateBestimmen
 
     Dim bew() As Variant      ' (1..nZ): "IO" / "NIO"
     Dim grund() As String     ' Fehlergruende je Zeile
@@ -659,11 +662,7 @@ Private Sub DatenblattSchreiben(bew() As Variant, grund() As String)
     ws.Range("A1").Resize(nZ + 1, nS).Value = a
     ws.Range("B2").Resize(nZ, 1).NumberFormat = "dd.mm.yyyy hh:mm"
     For k = 1 To N_KAN
-        If kFaktor(k) * gOverrange >= 100000 Then
-            ws.Cells(2, 3 + k).Resize(nZ, 1).NumberFormat = "#,##0"
-        Else
-            ws.Cells(2, 3 + k).Resize(nZ, 1).NumberFormat = "0.00"
-        End If
+        ws.Cells(2, 3 + k).Resize(nZ, 1).NumberFormat = kFormat(k)
     Next k
 
     ' Als Tabelle formatieren (Filter, Streifen)
@@ -757,9 +756,10 @@ Private Sub StatistikSchreiben(bew() As Variant)
         ws.Cells(28, c).Value = n0
     Next k
     KopfFormat ws.Range("B4").Resize(1, N_KAN)
-    With ws.Range("B13").Resize(10, N_KAN)
-        .NumberFormat = "#,##0.00"
-    End With
+    For k = 1 To N_KAN
+        ws.Cells(13, 1 + k).Resize(10, 1).NumberFormat = kFormat(k)
+        ws.Cells(7, 1 + k).Resize(2, 1).NumberFormat = kFormat(k)
+    Next k
     ws.Range("B23").Resize(1, N_KAN).NumberFormat = "0.000"
     ws.Range("B26").Resize(1, N_KAN).NumberFormat = "0.0%"
     ws.Range("B27").Resize(1, N_KAN).NumberFormat = "0.00"
@@ -870,7 +870,8 @@ Private Sub StatistikSchreiben(bew() As Variant)
     ws.Cells(r0 + 1, 1).Resize(nKl + 2, N_KAN + 2).Borders.Color = RGB(191, 191, 191)
     ws.Range("Z1").Value = r0 + 2     ' Startzeile Histogramm (fuer Diagramme)
     ws.Range("Z2").Value = nKl + 1
-    ws.Range("Z1:Z2").Font.Color = RGB(255, 255, 255)
+    KlassenEinzelkanal ws, N_KAN, r0 + nKl + 5
+    ws.Range("Z1:Z4").Font.Color = RGB(255, 255, 255)
 
     ws.Columns("A").ColumnWidth = 30
     ws.Columns("B:" & SpBuchst(N_KAN + 2)).ColumnWidth = 16
@@ -900,6 +901,70 @@ End Sub
 Private Sub Datenbalken(rg As Range)
     On Error Resume Next
     rg.FormatConditions.AddDatabar
+End Sub
+
+' Haeufigkeitsklassen eines Kanals mit eigenem, aus den Daten bestimmtem Bereich
+' (logarithmische Klassen in der Anzeigeeinheit). Startzeile/Anzahl -> Z3/Z4.
+Private Sub KlassenEinzelkanal(ws As Worksheet, ByVal k As Long, ByVal r0 As Long)
+    Dim lg() As Double, n As Long, i As Long
+    ReDim lg(1 To nZ)
+    For i = 1 To nZ
+        If Not IsEmpty(rWert(i, k)) Then
+            If rWert(i, k) > 0 And rWert(i, k) < gOverrange Then
+                n = n + 1: lg(n) = Log10(rWert(i, k) * kFaktor(k))
+            End If
+        End If
+    Next i
+    ws.Range("Z3").Value = 0: ws.Range("Z4").Value = 0
+    If n < 2 Then Exit Sub
+    ReDim Preserve lg(1 To n)
+    QuickSort lg, 1, n
+    ' Bereich P0,5 .. P99,5; bei weniger als einer Dekade lineare Klassen, sonst logarithmische
+    Dim lo As Double, hi As Double, schritt As Double, nKl As Long, kl As Long, linear As Boolean, x As Double
+    lo = Perzentil(lg, 0.005): hi = Perzentil(lg, 0.995)
+    linear = (hi - lo <= 1)
+    If linear Then
+        lo = 10 ^ lo: hi = 10 ^ hi
+        nKl = 25
+        schritt = (hi - lo) / nKl
+        If schritt <= 0 Then schritt = Abs(lo) * 0.01 + 1E-300
+    Else
+        If hi - lo <= 3 Then schritt = 0.1 Else schritt = 0.2
+        lo = Int(lo / schritt) * schritt
+        nKl = Int((hi - lo) / schritt) + 1
+        If nKl > 80 Then nKl = 80
+    End If
+    Dim h() As Long
+    ReDim h(0 To nKl + 1)
+    For i = 1 To n
+        If linear Then x = 10 ^ lg(i) Else x = lg(i)
+        kl = Int((x - lo) / schritt) + 1
+        If x - lo < 0 Then kl = 0
+        If kl > nKl Then
+            If linear And x <= hi * (1 + 1E-12) Then kl = nKl Else kl = nKl + 1
+        End If
+        h(kl) = h(kl) + 1
+    Next i
+    ws.Cells(r0, 1).Value = "Haeufigkeitsverteilung " & kKurz(k) & " [" & kEinheit(k) & "] (" & _
+                            IIf(linear, "lineare", "logarithmische") & " Klassen, ohne Werte <= 0)"
+    ws.Cells(r0, 1).Font.Bold = True: ws.Cells(r0, 1).Font.Size = 12
+    ws.Cells(r0 + 1, 1).Resize(1, 2).Value = Array("Klasse ab [" & kEinheit(k) & "]", "Anzahl")
+    KopfFormat ws.Cells(r0 + 1, 1).Resize(1, 2)
+    Dim a() As Variant
+    ReDim a(1 To nKl + 2, 1 To 2)
+    a(1, 1) = "kleiner": a(1, 2) = h(0)
+    For kl = 1 To nKl
+        If linear Then a(kl + 1, 1) = lo + (kl - 1) * schritt Else a(kl + 1, 1) = 10 ^ (lo + (kl - 1) * schritt)
+        a(kl + 1, 2) = h(kl)
+    Next kl
+    a(nKl + 2, 1) = "groesser": a(nKl + 2, 2) = h(nKl + 1)
+    ws.Cells(r0 + 2, 1).Resize(nKl + 2, 2).Value = a
+    ws.Cells(r0 + 3, 1).Resize(nKl, 1).NumberFormat = kFormat(k)
+    ws.Cells(r0 + 3, 1).Resize(nKl, 1).HorizontalAlignment = xlLeft
+    ws.Cells(r0 + 1, 1).Resize(nKl + 3, 2).Borders.LineStyle = xlContinuous
+    ws.Cells(r0 + 1, 1).Resize(nKl + 3, 2).Borders.Color = RGB(191, 191, 191)
+    ws.Range("Z3").Value = r0 + 2
+    ws.Range("Z4").Value = nKl + 2
 End Sub
 
 Private Function KorrLog(ByVal a As Long, ByVal b As Long) As Variant
@@ -1014,7 +1079,13 @@ Private Sub WochenSchreiben(bew() As Variant)
     ws.Range("A5").Resize(n, nSp).Value = a
     ws.Range("B5").Resize(n, 1).NumberFormat = "dd.mm.yyyy"
     ws.Range("F5").Resize(n, 1).NumberFormat = "0.0%"
-    ws.Range("G5").Resize(n, nSp - 6).NumberFormat = "#,##0"
+    c = 7
+    For k = 1 To N_KAN
+        If kTyp(k) = TYP_ISO Then
+            ws.Cells(5, c).Resize(n, 1).NumberFormat = kFormat(k)
+            c = c + 1
+        End If
+    Next k
     KopfFormat ws.Range("A4").Resize(1, nSp)
     ws.Range("A4").Resize(n + 1, nSp).Borders.LineStyle = xlContinuous
     ws.Range("A4").Resize(n + 1, nSp).Borders.Color = RGB(191, 191, 191)
@@ -1052,7 +1123,9 @@ Private Sub NioListeSchreiben(bew() As Variant, grund() As String)
     Next i
     ws.Range("A4").Resize(n, 3 + N_KAN).Value = a
     ws.Range("B4").Resize(n, 1).NumberFormat = "dd.mm.yyyy hh:mm"
-    ws.Range("D4").Resize(n, N_KAN).NumberFormat = "#,##0.00"
+    For k = 1 To N_KAN
+        ws.Cells(4, 3 + k).Resize(n, 1).NumberFormat = kFormat(k)
+    Next k
     ws.Columns("A:" & SpBuchst(3 + N_KAN)).AutoFit
     ws.Columns("C").ColumnWidth = 55
     ws.Range("A3").Resize(n + 1, 3 + N_KAN).AutoFilter
@@ -1341,16 +1414,19 @@ Private Sub DiagrammeErzeugen(pr As Range)
     Next k
 
     ' 9) Kapazitaet - Dekadenverteilung ------------------------------------------
-    Set ch = NeuesDiagramm(ws, pos, W, H, GAP, xlColumnClustered, kKurz(N_KAN) & " - Verteilung (Klassen log10)")
-    Set s = ch.SeriesCollection.NewSeries
-    s.Name = kKurz(N_KAN)
-    s.XValues = wsS.Cells(hr, 1).Resize(hn, 1)
-    s.Values = wsS.Cells(hr, 2 + N_KAN).Resize(hn, 1)
-    s.Format.Fill.ForeColor.RGB = KanFarbe(N_KAN)
-    ch.ChartGroups(1).GapWidth = 20
-    ch.HasLegend = False
-    AchsenTitel ch, "Klasse ab log10(Rohwert)", "Anzahl"
-    ch.Axes(xlCategory).TickLabels.NumberFormat = "0.00"
+    Dim kr As Long, kn As Long
+    kr = Val(CStr(wsS.Range("Z3").Value)): kn = Val(CStr(wsS.Range("Z4").Value))
+    If kn > 0 Then
+        Set ch = NeuesDiagramm(ws, pos, W, H, GAP, xlColumnClustered, kKurz(N_KAN) & " - Verteilung")
+        Set s = ch.SeriesCollection.NewSeries
+        s.Name = kKurz(N_KAN)
+        s.XValues = wsS.Cells(kr, 1).Resize(kn, 1)
+        s.Values = wsS.Cells(kr, 2).Resize(kn, 1)
+        s.Format.Fill.ForeColor.RGB = KanFarbe(N_KAN)
+        ch.ChartGroups(1).GapWidth = 20
+        ch.HasLegend = False
+        AchsenTitel ch, "Klasse ab [" & kEinheit(N_KAN) & "]", "Anzahl"
+    End If
 
     ' 10) Korrelation 5-7 vs 5-8 und 6-7 vs 6-8 ----------------------------------
     KorrDiagramm ws, pos, W, H, GAP, wh, 1, 2
@@ -1462,15 +1538,15 @@ Private Sub KorrDiagramm(ws As Worksheet, ByRef pos As Long, ByVal W As Double, 
     ch.HasLegend = False
     ch.Axes(xlCategory).ScaleType = xlScaleLogarithmic
     ch.Axes(xlValue).ScaleType = xlScaleLogarithmic
-    ch.Axes(xlCategory).TickLabels.NumberFormat = "#,##0"
-    ch.Axes(xlValue).TickLabels.NumberFormat = "#,##0"
+    ch.Axes(xlCategory).TickLabels.NumberFormat = kFormat(a)
+    ch.Axes(xlValue).TickLabels.NumberFormat = kFormat(b)
     AchsenTitel ch, kKurz(a) & " [" & kEinheit(a) & "]", kKurz(b) & " [" & kEinheit(b) & "]"
 End Sub
 
 Private Sub AchsenLog(ch As Chart, ByVal xT As String, ByVal yT As String)
     With ch.Axes(xlValue)
         .ScaleType = xlScaleLogarithmic
-        .TickLabels.NumberFormat = "#,##0.###"
+        .TickLabels.NumberFormat = "General"
         .HasMajorGridlines = True
         .MajorGridlines.Format.Line.ForeColor.RGB = RGB(217, 217, 217)
     End With
@@ -1637,28 +1713,47 @@ Private Sub UebersichtSchreiben(ByVal quelle As String, bew() As Variant, grund(
         Next k
 
         ' Kapazitaet: Dekaden
-        Dim dek(-30 To 30) As Long, dk As Long, top1 As Long, top2 As Long, d1 As Long, d2 As Long, n0 As Long
+        ' Zweigipfligkeit: groesste Luecke in den sortierten log-Werten
+        Dim lgC() As Double, nC As Long, n0 As Long, gPos As Long, jj As Long
+        ReDim lgC(1 To nZ)
         For i = 1 To nZ
             If Not IsEmpty(rWert(i, N_KAN)) Then
-                If rWert(i, N_KAN) > 0 Then
-                    dk = Int(Log10(rWert(i, N_KAN)))
-                    If dk >= -30 And dk <= 30 Then dek(dk) = dek(dk) + 1
+                If rWert(i, N_KAN) > 0 And rWert(i, N_KAN) < gOverrange Then
+                    nC = nC + 1: lgC(nC) = Log10(rWert(i, N_KAN) * kFaktor(N_KAN))
                 Else
-                    n0 = n0 + 1
+                    If rWert(i, N_KAN) <= 0 Then n0 = n0 + 1
                 End If
             End If
         Next i
-        For dk = -30 To 30
-            If dek(dk) > top1 Then
-                top2 = top1: d2 = d1: top1 = dek(dk): d1 = dk
-            ElseIf dek(dk) > top2 Then
-                top2 = dek(dk): d2 = dk
+        If nC > 20 Then
+            ' Klassen zu 0,1 Dekaden; gesucht ist ein Tal (3 Klassen mit <= 1 % der Werte),
+            ' links und rechts davon jeweils mindestens 10 % der Werte
+            ReDim Preserve lgC(1 To nC)
+            QuickSort lgC, 1, nC
+            Dim b0 As Double, nb As Long, hb() As Long, bb As Long, links As Long, mitte As Long, tal As Long
+            b0 = Int(lgC(1) * 10) / 10
+            nb = Int((lgC(nC) - b0) * 10) + 1
+            If nb > 400 Then nb = 400
+            ReDim hb(1 To nb)
+            For jj = 1 To nC
+                bb = Int((lgC(jj) - b0) * 10) + 1
+                If bb > nb Then bb = nb
+                hb(bb) = hb(bb) + 1
+            Next jj
+            For bb = 2 To nb - 1
+                mitte = hb(bb - 1) + hb(bb) + hb(bb + 1)
+                If mitte <= 0.01 * nC And links >= 0.1 * nC And nC - links - mitte >= 0.1 * nC Then
+                    If tal = 0 Then tal = bb: gPos = links + hb(bb - 1)
+                End If
+                links = links + hb(bb - 1)
+            Next bb
+            If tal > 0 Then
+                txt.Add kKurz(N_KAN) & " ist zweigipflig: " & gPos & " Werte um " & _
+                        Format$(10 ^ lgC((1 + gPos) \ 2), kFormat(N_KAN)) & " " & kEinheit(N_KAN) & " und " & (nC - gPos) & _
+                        " Werte um " & Format$(10 ^ lgC((gPos + 1 + nC) \ 2), kFormat(N_KAN)) & " " & kEinheit(N_KAN) & _
+                        ". Moegliche Ursachen: Messbereichsumschaltung / Einheitenfehler im Pruefprogramm " & _
+                        "oder zwei Produktvarianten - bitte pruefen."
             End If
-        Next dk
-        If top2 > 0.1 * nZ Then
-            txt.Add kKurz(N_KAN) & " ist zweigipflig: " & top1 & " Werte in der Dekade 1E+" & d1 & " und " & top2 & _
-                    " Werte in der Dekade 1E+" & d2 & " (Faktor 10 Unterschied bei gleicher Mantisse). " & _
-                    "Moegliche Ursachen: Messbereichsumschaltung / Einheitenfehler im Pruefprogramm oder zwei Produktvarianten - bitte pruefen."
         End If
         If n0 > 0 Then txt.Add kKurz(N_KAN) & ": " & n0 & " Messung(en) mit Wert 0 (keine Messung?)."
 
@@ -1759,7 +1854,9 @@ Private Sub UebersichtSchreiben(ByVal quelle As String, bew() As Variant, grund(
             .Cells(r + k, 6).Value = wsS.Cells(24, 1 + k).Value + wsS.Cells(25, 1 + k).Value
             .Cells(r + k, 7).Value = wsS.Cells(27, 1 + k).Value
         Next k
-        .Cells(r + 1, 3).Resize(N_KAN, 3).NumberFormat = "#,##0.00"
+        For k = 1 To N_KAN
+            .Cells(r + k, 3).Resize(1, 3).NumberFormat = kFormat(k)
+        Next k
         .Cells(r + 1, 7).Resize(N_KAN, 1).NumberFormat = "0.00"
         .Cells(r, 1).Resize(N_KAN + 1, 7).Borders.LineStyle = xlContinuous
 
@@ -1814,6 +1911,73 @@ Private Function SchluesselPos(col As Collection, ByVal key As String) As Long
     On Error Resume Next
     SchluesselPos = 0
     SchluesselPos = col(key)
+End Function
+
+' Zahlenformat je Kanal aus der Groessenordnung der Werte (Median der Betraege > 0)
+Private Sub FormateBestimmen()
+    Dim k As Long, i As Long, v() As Double, n As Long, m As Double
+    For k = 1 To N_KAN
+        ReDim v(1 To nZ): n = 0
+        For i = 1 To nZ
+            If Not IsEmpty(rWert(i, k)) Then
+                If rWert(i, k) <> 0 And Abs(rWert(i, k)) < gOverrange Then n = n + 1: v(n) = Abs(rWert(i, k) * kFaktor(k))
+            End If
+        Next i
+        If n = 0 Then
+            m = 1
+        Else
+            ReDim Preserve v(1 To n)
+            QuickSort v, 1, n
+            m = Perzentil(v, 0.5)
+        End If
+        kFormat(k) = FormatFuer(m)
+    Next k
+End Sub
+
+Private Function FormatFuer(ByVal m As Double) As String
+    If m >= 1000 Then
+        FormatFuer = "#,##0"
+    ElseIf m >= 10 Then
+        FormatFuer = "#,##0.0"
+    ElseIf m >= 0.1 Then
+        FormatFuer = "#,##0.000"
+    Else
+        FormatFuer = "0.000E+00"
+    End If
+End Function
+
+' Nach dem Import: Einheit der Kapazitaet automatisch erkennen, solange im Blatt
+' "Einstellungen" noch die Standardwerte (Faktor 1, Einheit "Rohwert ...") stehen.
+' Werte < 1E-3 sind offensichtlich in Farad -> Anzeige in nF.
+Private Sub EinheitenAutomatisch()
+    Dim ws As Worksheet, k As Long, i As Long, v() As Double, n As Long, m As Double
+    Set ws = Worksheets(WS_SET)
+    For k = 1 To N_KAN
+        If InStr(1, CStr(ws.Cells(4 + k, 2).Value), "Kapazit", vbTextCompare) > 0 _
+           And Val(CStr(ws.Cells(4 + k, 5).Value)) = 1 _
+           And Left$(CStr(ws.Cells(4 + k, 6).Value), 7) = "Rohwert" Then
+            ReDim v(1 To nZ): n = 0
+            For i = 1 To nZ
+                If Not IsEmpty(rWert(i, k)) Then
+                    If rWert(i, k) > 0 And rWert(i, k) < gOverrangeStandard() Then n = n + 1: v(n) = rWert(i, k)
+                End If
+            Next i
+            If n > 0 Then
+                ReDim Preserve v(1 To n)
+                QuickSort v, 1, n
+                m = Perzentil(v, 0.5)
+                If m < 0.001 Then
+                    ws.Cells(4 + k, 5).Value = 1000000000#
+                    ws.Cells(4 + k, 6).Value = "nF"
+                    ws.Cells(4 + k, 9).Value = "Rohwert in Farad (automatisch erkannt) -> Anzeige in nF"
+                End If
+            End If
+        End If
+    Next k
+End Sub
+
+Private Function gOverrangeStandard() As Double
+    gOverrangeStandard = ZahlOder(Worksheets(WS_SET).Range("B16").Value, 9900000000000#)
 End Function
 
 Private Sub InitFarben()

@@ -82,6 +82,10 @@ Isolation ≥ 5000 MΩ, 5-6 R ≥ 100 MΩ, Durchgang ≤ 10 Ω.
   werden erkannt; Abweichungen werden im Blatt *Datenqualitaet* protokolliert.
 * UTF-8 (Ω-Zeichen in den Spaltenköpfen) wird korrekt gelesen.
 * Prüfzeit = Unix-Zeit in ms → Excel-Datum (Zeitzone einstellbar).
+* Einheit der Kapazität wird automatisch erkannt: Rohwerte < 10⁻³ gelten als Farad und werden
+  in nF angezeigt (nur solange im Blatt *Einstellungen* noch Faktor 1 / „Rohwert …“ steht).
+* Zahlenformate richten sich nach der Größenordnung der Werte je Kanal (auch sehr kleine
+  Werte werden nicht als 0 angezeigt).
 * Bedingte Formatierungen verweisen auf Zellen in *Einstellungen* und funktionieren
   deshalb unabhängig von der Excel-Sprache (Dezimalkomma/-punkt).
 
