@@ -7,6 +7,9 @@ Attribute VB_Name = "Pruefplatz_Auswertung"
 '     Start_Auswertung      CSV auswaehlen, importieren und komplett auswerten
 '     Neu_Berechnen         Auswertung mit geaenderten Einstellungen wiederholen
 '                           (ohne erneuten Import)
+'     Startseite_Anlegen    legt das Blatt "Start" mit Schaltflaechen fuer die
+'                           Makros an (nur noetig, wenn das Modul in eine leere
+'                           Mappe importiert wurde)
 '
 '  Erzeugte Blaetter:
 '     Uebersicht            Kennzahlen, Auffaelligkeiten, Fehler-Pareto
@@ -49,6 +52,7 @@ Private Const WS_WOC As String = "Wochen"
 Private Const WS_DQ As String = "Datenqualitaet"
 Private Const WS_RAW As String = "Rohdaten"
 Private Const WS_HLP As String = "Hilfsdaten"
+Private Const WS_START As String = "Start"
 
 ' ---- Farben (Kanaele 1..8) ------------------------------------------------------
 Private KanFarbe(1 To N_KAN) As Long
@@ -131,6 +135,55 @@ Fehler:
 End Sub
 
 ' Setzt das Blatt "Einstellungen" auf die Standardwerte zurueck
+' Legt das Blatt "Start" mit Schaltflaechen fuer alle Makros an
+Public Sub Startseite_Anlegen()
+    Dim ws As Worksheet
+    If BlattExistiert(WS_START) Then
+        Set ws = ThisWorkbook.Worksheets(WS_START)
+        Dim i As Long
+        For i = ws.Buttons.Count To 1 Step -1
+            ws.Buttons(i).Delete
+        Next i
+        ws.Cells.Clear
+    Else
+        Set ws = ThisWorkbook.Worksheets.Add(Before:=ThisWorkbook.Worksheets(1))
+        ws.Name = WS_START
+    End If
+    ws.Activate
+    OhneGitternetz ws
+
+    ws.Range("B2").Value = "Pruefplatz-Auswertung"
+    ws.Range("B2").Font.Size = 20: ws.Range("B2").Font.Bold = True
+    ws.Range("B2").Font.Color = RGB(31, 78, 121)
+    ws.Range("B3").Value = "Grafische Auswertung und Analyse der Pruefplatz-CSV-Daten"
+    ws.Range("B3").Font.Color = RGB(118, 118, 118)
+
+    StartKnopf ws, ws.Range("B5"), "1. CSV importieren und auswerten", "Start_Auswertung", _
+               "CSV-Datei auswaehlen; alle Blaetter und Diagramme werden neu erzeugt."
+    StartKnopf ws, ws.Range("B9"), "2. Neu berechnen", "Neu_Berechnen", _
+               "Nach Aenderungen im Blatt 'Einstellungen' (Grenzwerte, Einheiten) - ohne erneuten Import."
+    StartKnopf ws, ws.Range("B13"), "Einstellungen zuruecksetzen", "Einstellungen_Zuruecksetzen", _
+               "Grenzwerte und Einheiten auf die Standardwerte zuruecksetzen."
+    ws.Range("B17").Value = "Hinweis: Die Standard-Grenzwerte sind Annahmen und muessen an die Pruefspezifikation " & _
+                            "angepasst werden (Blatt 'Einstellungen')."
+    ws.Range("B17").Font.Italic = True
+    ws.Range("B17").Font.Color = RGB(192, 0, 0)
+    ws.Columns("A").ColumnWidth = 3
+    ws.Columns("B:D").ColumnWidth = 14
+    ws.Range("A1").Select
+End Sub
+
+Private Sub StartKnopf(ws As Worksheet, ziel As Range, ByVal text As String, ByVal makro As String, ByVal info As String)
+    Dim b As Object
+    Set b = ws.Buttons.Add(ziel.Left, ziel.Top, 260, 40)
+    b.OnAction = makro
+    b.Caption = text
+    b.Font.Size = 12
+    b.Font.Bold = True
+    ws.Cells(ziel.Row + 1, ziel.Column + 5).Value = info
+    ws.Cells(ziel.Row + 1, ziel.Column + 5).Font.Color = RGB(89, 89, 89)
+End Sub
+
 Public Sub Einstellungen_Zuruecksetzen()
     If MsgBox("Alle Einstellungen auf Standard zuruecksetzen?", vbQuestion + vbYesNo) = vbNo Then Exit Sub
     EinstellungenAnlegen True
@@ -1832,7 +1885,7 @@ End Sub
 Private Sub BlattReihenfolge()
     Dim nm As Variant, vorher As Worksheet, i As Long
     Dim ordnung As Variant
-    ordnung = Array(WS_UEB, WS_DIA, WS_STA, WS_WOC, WS_NIO, WS_DAT, WS_SET, WS_DQ, WS_RAW, WS_HLP)
+    ordnung = Array(WS_START, WS_UEB, WS_DIA, WS_STA, WS_WOC, WS_NIO, WS_DAT, WS_SET, WS_DQ, WS_RAW, WS_HLP)
     If BlattExistiert(WS_HLP) Then Worksheets(WS_HLP).Visible = xlSheetVisible
     For i = UBound(ordnung) To 0 Step -1
         If BlattExistiert(CStr(ordnung(i))) Then

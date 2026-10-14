@@ -5,12 +5,26 @@ Prüfplatz-CSV-Exporte (z. B. `Pruefplatz_2_1.csv`).
 
 ## Installation
 
+### Variante A: fertige Arbeitsmappe (empfohlen)
+
+1. `Pruefplatz_Auswertung.xlsm` öffnen.
+2. In der gelben Leiste **Inhalt aktivieren** klicken. Kommt stattdessen eine rote Leiste
+   „Sicherheitsrisiko“: Datei schließen, im Explorer *Rechtsklick → Eigenschaften →
+   „Zulassen“* anhaken, dann erneut öffnen.
+3. Auf dem Blatt **Start** die Schaltfläche **„1. CSV importieren und auswerten“** klicken.
+
+### Variante B: Modul selbst importieren
+
 1. Excel öffnen → neue leere Arbeitsmappe.
 2. `Alt + F11` (VBA-Editor) → **Datei → Datei importieren…** → `Pruefplatz_Auswertung.bas` wählen.
 3. Arbeitsmappe als **Excel-Arbeitsmappe mit Makros (`*.xlsm`)** speichern.
-4. `Alt + F8` → Makro **`Start_Auswertung`** ausführen → CSV-Datei auswählen.
+4. `Alt + F8` → **`Startseite_Anlegen`** ausführen (legt das Blatt *Start* mit den Schaltflächen an)
+   oder direkt **`Start_Auswertung`** ausführen.
 
 Voraussetzung: Excel 2010 oder neuer unter Windows.
+
+Die `.xlsm` wird mit `tools/build_xlsm.py` aus der `.bas`-Datei erzeugt
+(VBA-Projekt nach MS-OVBA, nur Quelltext – Excel kompiliert beim ersten Öffnen).
 
 ## Makros
 
@@ -19,6 +33,7 @@ Voraussetzung: Excel 2010 oder neuer unter Windows.
 | `Start_Auswertung` | CSV auswählen, einlesen, komplett auswerten |
 | `Neu_Berechnen` | Auswertung nach Änderungen im Blatt *Einstellungen* wiederholen (ohne neuen Import) |
 | `Einstellungen_Zuruecksetzen` | Grenzwerte/Einheiten auf Standard zurücksetzen |
+| `Startseite_Anlegen` | Blatt *Start* mit Schaltflächen für die Makros anlegen |
 
 ## Erzeugte Blätter
 
