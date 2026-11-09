@@ -1,0 +1,10 @@
+{
+    "Datei": "S:\\01-SSG\\01-Allgemein\\25-Stundennachweis\\{Jahr}\\{Jahr}_Stundennachweis - Ossowski.xlsx",
+    "Projekt": "AB2500473",
+    "ProjektstundenEintragen": true,
+    "Pause": "0:45",
+    "PauseBisSechsStunden": "0:00",
+    "TageRueckwirkend": 14,
+    "WochenendeUeberspringen": true,
+    "FeiertageUeberspringen": true
+}
