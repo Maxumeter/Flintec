@@ -25,6 +25,12 @@ Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigt
 Sobald du ins Uhrzeitfeld tippst oder klickst, stoppt der Countdown.
 Die Sekunden stellst du in `einstellungen.json` unter `FensterSekunden` ein.
 
+Darunter stehen die Felder **Personalnr.** und **Name**. Einmal ausfüllen, dann werden sie gemerkt und in die Excel-Datei übernommen:
+Die Personalnummer kommt in Zelle E1, der Name in J1, und zwar in jedem Monatsblatt.
+Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
+
+Das Fenster lässt sich mit dem Strich oben rechts **minimieren** und über die Taskleiste wieder öffnen.
+
 Ist der Beginn für heute erfasst, erscheint das Fenster nicht mehr. Am Wochenende erscheint es gar nicht.
 Zum Korrigieren öffnest du es mit **`Beginn.cmd`** jederzeit wieder.
 

@@ -347,10 +347,11 @@ function Invoke-Sync {
         if (-not $soll) { continue }
         $offen += $soll
     }
-    if ($offen.Count -eq 0) { return }
-
-    foreach ($gruppe in ($offen | Group-Object { $_.Tag.Year })) {
-        $pfad = Get-DateiFuerJahr ([int]$gruppe.Name)
+    # Aktuelles Jahr immer pruefen, damit geaenderte Personalnummer/Name auch ohne neue Zeiten ankommen.
+    $jahre = @($offen | ForEach-Object { $_.Tag.Year }) + $heute.Year | Sort-Object -Unique
+    foreach ($jahr in $jahre) {
+        $gruppe = [pscustomobject]@{ Name = [string]$jahr; Group = @($offen | Where-Object { $_.Tag.Year -eq $jahr }) }
+        $pfad = Get-DateiFuerJahr $jahr
         $sitzung = $null
         $geaendert = $false
         try {
@@ -363,9 +364,17 @@ function Invoke-Sync {
                 $wert = Get-StatusWert $soll.Beginn $soll.Ende $p
                 if ($status[$key] -ne $wert) { $kandidaten += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key } }
             }
-            if ($kandidaten.Count -eq 0) { continue }
+            $fe = Get-FensterEinst
+            $kopfWert = '{0}|{1}' -f $fe.Personalnummer, $fe.Name
+            $kopfKey = 'kopf-' + $gruppe.Name
+            $kopfNeu = ($kopfWert -ne '|' -and $status[$kopfKey] -ne $kopfWert)
+            if ($kandidaten.Count -eq 0 -and -not $kopfNeu) { continue }
 
             $sitzung = Open-Mappe $pfad
+            if ($kopfNeu) {
+                if (Set-Kopfdaten $sitzung.Mappe $fe.Personalnummer $fe.Name) { $geaendert = $true }
+                $status[$kopfKey] = $kopfWert
+            }
             $feiertage = @()
             if ($Einst.FeiertageUeberspringen) { $feiertage = Get-Feiertage $sitzung.Mappe }
 
@@ -450,18 +459,42 @@ function Test-BeginnErfasst([datetime]$Tag) {
     return [bool](Get-Stempel | Where-Object { $_.Art -eq 'Beginn' -and $_.Zeit.Date -eq $Tag.Date } | Select-Object -First 1)
 }
 
-function Get-AutoSchliessen {
-    # Gemerkte Einstellung des Hakens im Fenster (Standard: aus)
+function Get-FensterEinst {
+    # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = '' }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
-            return [bool]((Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json).AutomatischSchliessen)
+            $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $o.AutomatischSchliessen) { $e.AutomatischSchliessen = [bool]$o.AutomatischSchliessen }
+            if ($o.Personalnummer) { $e.Personalnummer = ([string]$o.Personalnummer).Trim() }
+            if ($o.Name) { $e.Name = ([string]$o.Name).Trim() }
         }
     } catch { }
-    return $false
+    return $e
 }
 
-function Set-AutoSchliessen([bool]$Wert) {
-    try { (@{ AutomatischSchliessen = $Wert } | ConvertTo-Json) | Set-Content -LiteralPath $FensterDatei -Encoding UTF8 } catch { }
+function Save-FensterEinst($E) {
+    try { ($E | ConvertTo-Json) | Set-Content -LiteralPath $FensterDatei -Encoding UTF8 } catch { }
+}
+
+function Set-Kopfdaten($Mappe, [string]$Personalnummer, [string]$Name) {
+    # Personalnummer steht in E1, der Name in J1 jedes Monatsblatts.
+    # Zellen mit Formel (z. B. =Oktober!J1) bleiben unangetastet - die holen sich den Wert selbst.
+    $geaendert = $false
+    for ($m = 1; $m -le 12; $m++) {
+        try { $blatt = $Mappe.Worksheets.Item($DeKultur.DateTimeFormat.GetMonthName($m)) } catch { continue }
+        foreach ($paar in @(@('E1', $Personalnummer), @('J1', $Name))) {
+            $wert = $paar[1]
+            if ([string]::IsNullOrWhiteSpace($wert)) { continue }
+            $zelle = $blatt.Range($paar[0])
+            if ($zelle.HasFormula) { continue }
+            if (([string]$zelle.Value2).Trim() -eq $wert) { continue }
+            if ($wert -match '^\d{1,15}$') { $zelle.Value2 = [double]$wert } else { $zelle.Value2 = $wert }
+            $geaendert = $true
+        }
+    }
+    if ($geaendert) { Write-Protokoll "Personalnummer/Name in die Datei eingetragen." }
+    return $geaendert
 }
 
 function Show-BeginnFenster([datetime]$Tag) {
@@ -474,13 +507,13 @@ function Show-BeginnFenster([datetime]$Tag) {
 
     $f = New-Object System.Windows.Forms.Form
     $f.Text = 'Stundennachweis'
-    $f.FormBorderStyle = 'FixedToolWindow'
-    $f.MaximizeBox = $false; $f.MinimizeBox = $false
+    $f.FormBorderStyle = 'FixedSingle'
+    $f.MaximizeBox = $false; $f.MinimizeBox = $true   # minimieren erlaubt
     $f.TopMost = $true
     $f.ShowInTaskbar = $true
     $f.StartPosition = 'Manual'
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(300, 116)
+    $f.ClientSize = New-Object System.Drawing.Size(300, 186)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Arbeitsbeginn am ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
@@ -511,7 +544,26 @@ function Show-BeginnFenster([datetime]$Tag) {
     $cb.Text = ('Automatisch schlie' + [char]0x00DF + 'en nach {0} s') -f $sekunden
     $cb.Location = New-Object System.Drawing.Point(12, 84)
     $cb.AutoSize = $true
-    $cb.Checked = Get-AutoSchliessen
+    $fe = Get-FensterEinst
+    $cb.Checked = $fe.AutomatischSchliessen
+
+    $lblPnr = New-Object System.Windows.Forms.Label
+    $lblPnr.Text = 'Personalnr.:'
+    $lblPnr.Location = New-Object System.Drawing.Point(12, 121)
+    $lblPnr.AutoSize = $true
+    $tbPnr = New-Object System.Windows.Forms.TextBox
+    $tbPnr.Text = $fe.Personalnummer
+    $tbPnr.Location = New-Object System.Drawing.Point(100, 118)
+    $tbPnr.Width = 188
+
+    $lblName = New-Object System.Windows.Forms.Label
+    $lblName.Text = 'Name:'
+    $lblName.Location = New-Object System.Drawing.Point(12, 153)
+    $lblName.AutoSize = $true
+    $tbName = New-Object System.Windows.Forms.TextBox
+    $tbName.Text = $fe.Name
+    $tbName.Location = New-Object System.Drawing.Point(100, 150)
+    $tbName.Width = 188
 
     # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
     # Bei 0 wird die angezeigte Uhrzeit uebernommen.
@@ -528,12 +580,13 @@ function Show-BeginnFenster([datetime]$Tag) {
         $ok.Text = 'Eintragen'
     }
     $cb.Add_CheckedChanged({
-        Set-AutoSchliessen $cb.Checked
+        $e2 = Get-FensterEinst; $e2.AutomatischSchliessen = $cb.Checked; Save-FensterEinst $e2
         if ($cb.Checked) { $script:Rest = $sekunden; $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
         else { & $stoppen }
     })
     $tb.Add_KeyDown({ & $stoppen })
     $tb.Add_MouseDown({ & $stoppen })
+    foreach ($feld in $tbPnr, $tbName) { $feld.Add_KeyDown({ & $stoppen }); $feld.Add_MouseDown({ & $stoppen }) }
 
     $script:FensterZeit = $null
     $ok.Add_Click({
@@ -547,7 +600,15 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb))
+    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb, $lblPnr, $tbPnr, $lblName, $tbName))
+    # Personalnummer und Name beim Schliessen merken (auch bei "Spaeter")
+    $f.Add_FormClosing({
+        $e2 = Get-FensterEinst
+        $e2.Personalnummer = $tbPnr.Text.Trim()
+        $e2.Name = $tbName.Text.Trim()
+        $e2.AutomatischSchliessen = $cb.Checked
+        Save-FensterEinst $e2
+    })
     $f.AcceptButton = $ok
     $f.CancelButton = $spaeter
 
