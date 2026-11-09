@@ -33,7 +33,9 @@ Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
 
 ### Projekte und Verteilung
 
-Ganz unten im Fenster steht eine kleine Tabelle mit den Spalten **Auftragsnr.**, **Bezeichnung** und **Anteil**.
+Ganz unten im Fenster steht eine kleine Tabelle mit den Spalten **Auftragsnr.**, **Bezeichnung**, **Anteil** und **Stunden**.
+Die Spalte **Stunden** (grau) zeigt, wie viele der bisherigen Tagesstunden auf jedes Projekt entfallen.
+Sie aktualisiert sich zusammen mit der Gesamtanzeige und sofort, wenn du einen Anteil änderst.
 Für ein weiteres Projekt tippst du einfach in die leere letzte Zeile.
 Zum Löschen klickst du links auf das Kästchen vor der Zeile und drückst `Entf`.
 

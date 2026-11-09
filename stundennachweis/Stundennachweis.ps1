@@ -324,7 +324,7 @@ function ConvertTo-Anteil([string]$Text) {
     throw "Ungueltiger Anteil '$Text' (z. B. 2:30, 2,5 oder 40%)."
 }
 
-function Get-Verteilung([double]$Gesamt, $Projekte) {
+function Get-Verteilung([double]$Gesamt, $Projekte, [switch]$Still) {
     # Verteilt die Arbeitszeit auf die Projekte.
     #  - feste Stunden und Prozente zuerst
     #  - der Rest gleichmaessig auf die Projekte ohne Angabe
@@ -332,7 +332,7 @@ function Get-Verteilung([double]$Gesamt, $Projekte) {
     #  - sind die festen Anteile groesser als die Arbeitszeit, werden sie anteilig gekuerzt
     $liste = @()
     foreach ($pj in $Projekte) {
-        try { $a = ConvertTo-Anteil $pj.Anteil } catch { Write-Protokoll $_.Exception.Message; $a = @{ Art = 'Rest'; Wert = 0.0 } }
+        try { $a = ConvertTo-Anteil $pj.Anteil } catch { if (-not $Still) { Write-Protokoll $_.Exception.Message }; $a = @{ Art = 'Rest'; Wert = 0.0 } }
         $soll = 0.0
         if ($a.Art -eq 'Stunden') { $soll = $a.Wert }
         if ($a.Art -eq 'Prozent') { $soll = $Gesamt * $a.Wert / 100.0 }
@@ -653,6 +653,17 @@ function Show-BeginnFenster([datetime]$Tag) {
             if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
         }
         $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
+
+        # Stunden pro Projekt in der Tabelle (Spalte "Stunden")
+        if (-not $grid) { return }
+        $verteilung = @(Get-Verteilung ([math]::Round($std, 2)) (& $leseGrid) -Still)
+        $i = 0
+        foreach ($zeile in $grid.Rows) {
+            if ($zeile.IsNewRow) { continue }
+            if (-not ([string]$zeile.Cells[0].Value).Trim()) { $zeile.Cells[3].Value = ''; continue }
+            if ($i -lt $verteilung.Count) { $zeile.Cells[3].Value = $verteilung[$i].Stunden.ToString('0.00', $DeKultur) }
+            $i++
+        }
     }
     $uhr = New-Object System.Windows.Forms.Timer
     $uhr.Interval = 15000
@@ -718,9 +729,14 @@ function Show-BeginnFenster([datetime]$Tag) {
     [void]$grid.Columns.Add('Nummer', 'Auftragsnr.')
     [void]$grid.Columns.Add('Bezeichnung', 'Bezeichnung')
     [void]$grid.Columns.Add('Anteil', 'Anteil')
-    $grid.Columns[0].FillWeight = 32
-    $grid.Columns[1].FillWeight = 46
-    $grid.Columns[2].FillWeight = 22
+    [void]$grid.Columns.Add('Stunden', 'Stunden')
+    $grid.Columns[0].FillWeight = 28
+    $grid.Columns[1].FillWeight = 40
+    $grid.Columns[2].FillWeight = 16
+    $grid.Columns[3].FillWeight = 16
+    $grid.Columns[3].ReadOnly = $true
+    $grid.Columns[3].DefaultCellStyle.BackColor = [System.Drawing.SystemColors]::Control
+    $grid.Columns[3].DefaultCellStyle.Alignment = 'MiddleRight'
     foreach ($pj in (Get-Projekte)) { [void]$grid.Rows.Add($pj.Nummer, $pj.Bezeichnung, $pj.Anteil) }
 
     $leseGrid = {
@@ -778,8 +794,9 @@ function Show-BeginnFenster([datetime]$Tag) {
         $zelle = $grid.Rows[$_.RowIndex].Cells[2]
         try { [void](ConvertTo-Anteil ([string]$zelle.Value)); $zelle.Style.BackColor = [System.Drawing.Color]::Empty }
         catch { $zelle.Style.BackColor = [System.Drawing.Color]::MistyRose }
+        & $zeigeGesamt
     })
-    $grid.Add_UserDeletedRow({ & $merken })
+    $grid.Add_UserDeletedRow({ & $merken; & $zeigeGesamt })
 
     $script:FensterZeit = $null
     $ok.Add_Click({
