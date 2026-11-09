@@ -25,9 +25,19 @@ Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigt
 Sobald du ins Uhrzeitfeld tippst oder klickst, stoppt der Countdown.
 Die Sekunden stellst du in `einstellungen.json` unter `FensterSekunden` ein.
 
-Darunter stehen die Felder **Personalnr.** und **Name**. Einmal ausfüllen, dann werden sie gemerkt und in die Excel-Datei übernommen:
-Die Personalnummer kommt in Zelle E1, der Name in J1, und zwar in jedem Monatsblatt.
+Darunter stehen vier Felder. Alles, was du dort eintippst, wird sofort gespeichert und steht beim nächsten Mal wieder da, auch nach einem Neustart:
+
+| Feld | Wohin in der Excel-Datei |
+|---|---|
+| **Personalnr.** | Zelle E1 in jedem Monatsblatt |
+| **Name** | Zelle J1 in jedem Monatsblatt |
+| **Auftragsnr.** | Projektzeile, Spalte A. Hierauf werden die Stunden gebucht. |
+| **Bezeichnung** | Dieselbe Projektzeile, Spalte B |
+
 Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
+Neue Auftragsnummer: Gibt es dazu im Monatsblatt noch keine Zeile, legt das Skript sie in der ersten freien Projektzeile an.
+Die Stunden landen ab dem Tag des Wechsels dort, die alten Zeilen bleiben stehen.
+Solange das Feld Auftragsnr. leer ist, gilt die Nummer aus `einstellungen.json`.
 
 Das Fenster lässt sich mit dem Strich oben rechts **minimieren** und über die Taskleiste wieder öffnen.
 

@@ -276,12 +276,17 @@ function Get-Feiertage($Mappe) {
     return $liste
 }
 
-function Find-Projektzeile($Blatt, [string]$Nummer) {
+function Find-Projektzeile($Blatt, [string]$Nummer, [string]$Bezeichnung) {
     $frei = $null
     for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
         $a = ([string]$Blatt.Cells.Item($r, 1).Value2).Trim()
         $b = ([string]$Blatt.Cells.Item($r, 2).Value2).Trim()
-        if ($a -ieq $Nummer -or $b -ieq $Nummer) { return $r }
+        if ($a -ieq $Nummer) {
+            # Bezeichnung in Spalte B aktuell halten
+            if ($Bezeichnung -and $b -ne $Bezeichnung) { $Blatt.Cells.Item($r, 2).Value2 = $Bezeichnung }
+            return $r
+        }
+        if ($b -ieq $Nummer) { return $r }   # aeltere Schreibweise: Nummer steht in Spalte B
         if (-not $frei -and $a -eq '' -and $b -eq '') {
             $inhalt = $Blatt.Application.WorksheetFunction.CountA($Blatt.Range("C${r}:AG${r}"))
             if ($inhalt -eq 0) { $frei = $r }
@@ -290,6 +295,7 @@ function Find-Projektzeile($Blatt, [string]$Nummer) {
     if ($frei) {
         $Blatt.Cells.Item($frei, 1).NumberFormat = '@'
         $Blatt.Cells.Item($frei, 1).Value2 = $Nummer
+        if ($Bezeichnung) { $Blatt.Cells.Item($frei, 2).Value2 = $Bezeichnung }
         return $frei
     }
     return $null
@@ -305,7 +311,7 @@ function Get-PauseFuer([TimeSpan]$Anwesenheit) {
     return ConvertTo-Zeitspanne $Einst.PauseBisSechsStunden
 }
 
-function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, [string]$ProjektNr) {
+function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, [string]$ProjektNr, [string]$ProjektBez) {
     # Schreibt die Werte eines Tages. $B/$E/$P duerfen $null sein (= nicht aendern).
     if ($null -ne $B) { $Blatt.Cells.Item($Z_BEGINN, $Spalte).Value2 = $B.TotalDays }
     if ($null -ne $E) { $Blatt.Cells.Item($Z_ENDE, $Spalte).Value2 = $E.TotalDays }
@@ -319,7 +325,7 @@ function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, [string]$Proj
     $stunden = [math]::Round(($e2 - $b2 - $(if ($p2) { $p2 } else { [TimeSpan]::Zero })).TotalHours, 2)
     if ($stunden -le 0) { return }
 
-    $zeile = Find-Projektzeile $Blatt $ProjektNr
+    $zeile = Find-Projektzeile $Blatt $ProjektNr $ProjektBez
     if (-not $zeile) { Write-Protokoll "Keine freie Projektzeile fuer $ProjektNr gefunden."; return }
 
     for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
@@ -410,9 +416,10 @@ function Invoke-Sync {
                     continue
                 }
 
+                $pj = Get-Projekt
                 $projektNr = $null
-                if ($Einst.ProjektstundenEintragen) { $projektNr = $Einst.Projekt }
-                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $projektNr
+                if ($Einst.ProjektstundenEintragen) { $projektNr = $pj.Nummer }
+                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $projektNr $pj.Bezeichnung
                 $status[$k.Key] = $k.Wert
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
@@ -442,9 +449,10 @@ function Invoke-Eintragen {
             $e2 = $e; if ($null -eq $e2) { $e2 = Get-Zellzeit $blatt $Z_ENDE $spalte }
             if ($null -ne $b2 -and $null -ne $e2 -and (Test-ZelleLeer $blatt $Z_PAUSE $spalte)) { $p = Get-PauseFuer ($e2 - $b2) }
         }
-        $nr = $Projekt
-        if (-not $nr -and $Einst.ProjektstundenEintragen) { $nr = $Einst.Projekt }
-        Set-Tag $blatt $spalte $Datum $b $e $p $nr
+        $pj = Get-Projekt
+        $nr = $Projekt; $bez = ''
+        if (-not $nr -and $Einst.ProjektstundenEintragen) { $nr = $pj.Nummer; $bez = $pj.Bezeichnung }
+        Set-Tag $blatt $spalte $Datum $b $e $p $nr $bez
         $ok = $true
     } finally {
         Close-Mappe $sitzung $ok
@@ -461,16 +469,26 @@ function Test-BeginnErfasst([datetime]$Tag) {
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = '' }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekt = ''; Bezeichnung = '' }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($null -ne $o.AutomatischSchliessen) { $e.AutomatischSchliessen = [bool]$o.AutomatischSchliessen }
             if ($o.Personalnummer) { $e.Personalnummer = ([string]$o.Personalnummer).Trim() }
             if ($o.Name) { $e.Name = ([string]$o.Name).Trim() }
+            if ($o.Projekt) { $e.Projekt = ([string]$o.Projekt).Trim() }
+            if ($o.Bezeichnung) { $e.Bezeichnung = ([string]$o.Bezeichnung).Trim() }
         }
     } catch { }
     return $e
+}
+
+function Get-Projekt {
+    # Projekt aus dem Fenster; solange dort nichts steht, das aus einstellungen.json
+    $fe = Get-FensterEinst
+    $nr = $fe.Projekt
+    if (-not $nr) { $nr = [string]$Einst.Projekt }
+    return [pscustomobject]@{ Nummer = $nr; Bezeichnung = $fe.Bezeichnung }
 }
 
 function Save-FensterEinst($E) {
@@ -513,7 +531,7 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.ShowInTaskbar = $true
     $f.StartPosition = 'Manual'
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(300, 186)
+    $f.ClientSize = New-Object System.Drawing.Size(300, 250)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Arbeitsbeginn am ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
@@ -547,23 +565,38 @@ function Show-BeginnFenster([datetime]$Tag) {
     $fe = Get-FensterEinst
     $cb.Checked = $fe.AutomatischSchliessen
 
-    $lblPnr = New-Object System.Windows.Forms.Label
-    $lblPnr.Text = 'Personalnr.:'
-    $lblPnr.Location = New-Object System.Drawing.Point(12, 121)
-    $lblPnr.AutoSize = $true
-    $tbPnr = New-Object System.Windows.Forms.TextBox
-    $tbPnr.Text = $fe.Personalnummer
-    $tbPnr.Location = New-Object System.Drawing.Point(100, 118)
-    $tbPnr.Width = 188
+    # Eingabefelder, die sich das Fenster merkt
+    $felder = @()
+    $beschriftungen = @()
+    function New-Feld([string]$Text, [int]$Y, [string]$Wert) {
+        $l = New-Object System.Windows.Forms.Label
+        $l.Text = $Text
+        $l.Location = New-Object System.Drawing.Point(12, ($Y + 3))
+        $l.AutoSize = $true
+        $t = New-Object System.Windows.Forms.TextBox
+        $t.Text = $Wert
+        $t.Location = New-Object System.Drawing.Point(104, $Y)
+        $t.Width = 184
+        $script:FeldLabel = $l
+        return $t
+    }
+    $pj = Get-Projekt
+    $tbPnr  = New-Feld 'Personalnr.:' 118 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
+    $tbName = New-Feld 'Name:'        150 $fe.Name;           $beschriftungen += $script:FeldLabel
+    $tbProj = New-Feld 'Auftragsnr.:' 182 $pj.Nummer;         $beschriftungen += $script:FeldLabel
+    $tbBez  = New-Feld 'Bezeichnung:' 214 $pj.Bezeichnung;    $beschriftungen += $script:FeldLabel
+    $felder = @($tbPnr, $tbName, $tbProj, $tbBez)
 
-    $lblName = New-Object System.Windows.Forms.Label
-    $lblName.Text = 'Name:'
-    $lblName.Location = New-Object System.Drawing.Point(12, 153)
-    $lblName.AutoSize = $true
-    $tbName = New-Object System.Windows.Forms.TextBox
-    $tbName.Text = $fe.Name
-    $tbName.Location = New-Object System.Drawing.Point(100, 150)
-    $tbName.Width = 188
+    # Sofort merken, sobald sich etwas aendert (bleibt auch nach Neustart erhalten)
+    $merken = {
+        $e2 = Get-FensterEinst
+        $e2.Personalnummer = $tbPnr.Text.Trim()
+        $e2.Name = $tbName.Text.Trim()
+        $e2.Projekt = $tbProj.Text.Trim()
+        $e2.Bezeichnung = $tbBez.Text.Trim()
+        $e2.AutomatischSchliessen = $cb.Checked
+        Save-FensterEinst $e2
+    }
 
     # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
     # Bei 0 wird die angezeigte Uhrzeit uebernommen.
@@ -586,7 +619,11 @@ function Show-BeginnFenster([datetime]$Tag) {
     })
     $tb.Add_KeyDown({ & $stoppen })
     $tb.Add_MouseDown({ & $stoppen })
-    foreach ($feld in $tbPnr, $tbName) { $feld.Add_KeyDown({ & $stoppen }); $feld.Add_MouseDown({ & $stoppen }) }
+    foreach ($feld in $felder) {
+        $feld.Add_KeyDown({ & $stoppen })
+        $feld.Add_MouseDown({ & $stoppen })
+        $feld.Add_TextChanged({ & $merken })
+    }
 
     $script:FensterZeit = $null
     $ok.Add_Click({
@@ -600,15 +637,9 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb, $lblPnr, $tbPnr, $lblName, $tbName))
-    # Personalnummer und Name beim Schliessen merken (auch bei "Spaeter")
-    $f.Add_FormClosing({
-        $e2 = Get-FensterEinst
-        $e2.Personalnummer = $tbPnr.Text.Trim()
-        $e2.Name = $tbName.Text.Trim()
-        $e2.AutomatischSchliessen = $cb.Checked
-        Save-FensterEinst $e2
-    })
+    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder)
+    # Beim Schliessen ebenfalls merken (auch bei "Spaeter")
+    $f.Add_FormClosing({ & $merken })
     $f.AcceptButton = $ok
     $f.CancelButton = $spaeter
 
@@ -682,13 +713,14 @@ function Invoke-Test {
         while ($n -gt 0) { $m = ($n - 1) % 26; $buchstabe = [char](65 + $m) + $buchstabe; $n = [int][math]::Floor(($n - 1) / 26) }
         Write-Host "Blatt:    $($blatt.Name)"
         Write-Host ("Spalte:   {0} ({1:dd.MM.yyyy})" -f $buchstabe, $Datum)
+        $pj = Get-Projekt
         $zeile = $null
         for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
             $a = ([string]$blatt.Cells.Item($r, 1).Value2).Trim(); $b = ([string]$blatt.Cells.Item($r, 2).Value2).Trim()
-            if ($a -ieq $Einst.Projekt -or $b -ieq $Einst.Projekt) { $zeile = $r; break }
+            if ($a -ieq $pj.Nummer -or $b -ieq $pj.Nummer) { $zeile = $r; break }
         }
-        if ($zeile) { Write-Host "Projekt:  $($Einst.Projekt) in Zeile $zeile" }
-        else { Write-Host "Projekt:  $($Einst.Projekt) steht noch nicht im Blatt - wird in die erste freie Zeile geschrieben." }
+        if ($zeile) { Write-Host "Projekt:  $($pj.Nummer) in Zeile $zeile" }
+        else { Write-Host "Projekt:  $($pj.Nummer) steht noch nicht im Blatt - wird in die erste freie Zeile geschrieben." }
         Write-Host ("Feiertage gefunden: {0}" -f @(Get-Feiertage $sitzung.Mappe).Count)
         Write-Host 'Test OK - es wurde nichts geaendert.' -ForegroundColor Green
     } finally {
