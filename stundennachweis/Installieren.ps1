@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Richtet die automatische Zeiterfassung ein (drei Aufgaben in der Windows-Aufgabenplanung).
+# Richtet die automatische Zeiterfassung ein (zwei Aufgaben in der Windows-Aufgabenplanung).
 # Aufruf: Doppelklick auf "Installieren.cmd"
 
 $ErrorActionPreference = 'Stop'
@@ -18,7 +18,7 @@ function New-Aktion([string]$Argumente) {
 }
 
 function New-SitzungsTrigger([int]$Art) {
-    # 7 = Arbeitsstation gesperrt, 8 = Arbeitsstation entsperrt
+    # 8 = Arbeitsstation entsperrt
     $klasse = Get-CimClass -Namespace $ns -ClassName MSFT_TaskSessionStateChangeTrigger
     $t = New-CimInstance -CimClass $klasse -ClientOnly
     $t.StateChange = $Art
@@ -40,22 +40,21 @@ $principal = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType Interactive
 $einst = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances Queue
 $einstKurz = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances Parallel
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances Parallel
 
 $aufgaben = @(
     @{ Name = 'Stundennachweis - Kommen'
        Beschreibung = 'Merkt sich beim Anmelden/Entsperren die Uhrzeit und traegt den Arbeitsbeginn ein.'
        Trigger = @((New-ScheduledTaskTrigger -AtLogOn -User $benutzer), (New-SitzungsTrigger 8))
        Aktion = (New-Aktion '-Aktion Kommen'); Einst = $einst },
-    @{ Name = 'Stundennachweis - Gehen'
-       Beschreibung = 'Merkt sich beim Sperren die Uhrzeit und traegt das Arbeitsende ein.'
-       Trigger = @(New-SitzungsTrigger 7)
-       Aktion = (New-Aktion '-Aktion Gehen'); Einst = $einst },
     @{ Name = 'Stundennachweis - Herunterfahren'
-       Beschreibung = 'Merkt sich beim Herunterfahren die Uhrzeit (wird beim naechsten Anmelden eingetragen).'
+       Beschreibung = 'Traegt beim Herunterfahren das Arbeitsende ein (klappt das nicht mehr, beim naechsten Anmelden).'
        Trigger = @(New-HerunterfahrenTrigger)
-       Aktion = (New-Aktion '-Aktion Gehen -OhneExcel'); Einst = $einstKurz }
+       Aktion = (New-Aktion '-Aktion Herunterfahren'); Einst = $einstKurz }
 )
+
+# Fruehere Version hat beim Sperren reagiert - diese Aufgabe entfernen.
+try { Unregister-ScheduledTask -TaskName 'Stundennachweis - Gehen' -Confirm:$false -ErrorAction Stop; Write-Host 'Entfernt: Stundennachweis - Gehen (Sperren)' } catch { }
 
 $fehler = 0
 foreach ($a in $aufgaben) {
@@ -75,7 +74,7 @@ Write-Host 'Pruefe den Zugriff auf die Excel-Datei ...'
 Write-Host ''
 if ($fehler -eq 0) {
     Write-Host 'Fertig. Ab jetzt werden Beginn und Ende automatisch eingetragen.' -ForegroundColor Green
-    Write-Host 'Tipp: Den PC beim Verlassen immer sperren (Windows-Taste + L).'
+    Write-Host 'Das Arbeitsende wird beim Herunterfahren eingetragen.'
 } else {
     Write-Host 'Nicht alle Aufgaben konnten angelegt werden. Siehe Fehlermeldungen oben.' -ForegroundColor Yellow
 }

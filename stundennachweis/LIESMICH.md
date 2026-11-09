@@ -8,8 +8,8 @@ Trägt jeden Arbeitstag **Arbeitsbeginn, Arbeitsende, Pause und Projektstunden**
 | Wann                         | Was passiert                                                         |
 |------------------------------|----------------------------------------------------------------------|
 | Anmelden / PC entsperren     | Uhrzeit wird gemerkt. Die **erste** des Tages ist der Arbeitsbeginn. |
-| PC sperren (Windows-Taste+L) | Uhrzeit wird gemerkt. Die **letzte** des Tages ist das Arbeitsende.  |
-| Herunterfahren               | Uhrzeit wird gemerkt und beim nächsten Anmelden eingetragen.         |
+| Herunterfahren               | Uhrzeit wird als **Arbeitsende** eingetragen.                        |
+| PC sperren (Windows-Taste+L) | Nichts.                                                              |
 
 Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 
@@ -25,7 +25,9 @@ Folgende Tage werden **nicht** angefasst:
 - Projektstunden an Tagen, an denen schon andere Projekte gebucht sind. Beginn, Ende und Pause trägt es trotzdem ein.
 
 Ist die Datei bei dir in Excel offen, schreibt das Skript direkt hinein und speichert.
-Hat sie jemand anderes offen, versucht es das beim nächsten Sperren oder Entsperren noch einmal.
+Klappt das Eintragen beim Herunterfahren nicht, z. B. weil Windows zu schnell beendet oder jemand anderes
+die Datei offen hat, holt das Skript es beim nächsten Anmelden nach. Die Uhrzeit des Herunterfahrens geht dabei nicht verloren.
+Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zählen nicht als Arbeitsende.
 
 ## Einrichten (einmalig, ca. 2 Minuten)
 
@@ -39,7 +41,9 @@ Hat sie jemand anderes offen, versucht es das beim nächsten Sperren oder Entspe
 3. Doppelklick auf **`Installieren.cmd`**.
    Am Ende muss „Test OK“ in Grün erscheinen.
 
-Ab dann läuft alles automatisch. **Wichtig:** Beim Gehen den PC sperren (Windows-Taste + L) oder herunterfahren.
+Ab dann läuft alles automatisch. **Wichtig:** Zum Feierabend den PC herunterfahren.
+Hattest du schon die erste Version installiert, `Installieren.cmd` einfach noch einmal ausführen.
+Die alte Aufgabe für das Sperren wird dabei entfernt.
 
 ## Nützliches
 
@@ -60,8 +64,9 @@ Dieser Tag wird danach nicht mehr automatisch überschrieben.
 
 ## Grenzen
 
-- Ohne Sperren und ohne Herunterfahren kennt das Skript kein Arbeitsende. Dann zählt das letzte Sperren, z. B. das zur Mittagspause.
-  In dem Fall den Tag mit `-Aktion Eintragen` korrigieren.
+- Wird der PC nicht heruntergefahren (nur gesperrt, Energiesparmodus, Akku leer), bleibt das Arbeitsende leer.
+  Dann den Tag mit `-Aktion Eintragen -Ende 16:30` nachtragen.
+- Mehrmals Herunterfahren am selben Tag: Es zählt das letzte.
 - Dienstreisen, Homeoffice ohne Firmen-PC usw. bitte von Hand eintragen.
 - Voraussetzungen: Windows mit installiertem Excel und Zugriff auf Laufwerk `S:`.
   Falls die IT PowerShell-Skripte oder geplante Aufgaben sperrt, bricht `Installieren.cmd` mit einer Fehlermeldung ab.

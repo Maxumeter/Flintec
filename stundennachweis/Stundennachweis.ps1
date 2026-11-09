@@ -7,8 +7,8 @@
 .DESCRIPTION
     Die Windows-Aufgabenplanung ruft dieses Skript auf:
       - beim Anmelden und Entsperren   -> -Aktion Kommen
-      - beim Sperren                   -> -Aktion Gehen
-      - beim Herunterfahren            -> -Aktion Gehen -OhneExcel
+      - beim Herunterfahren            -> -Aktion Herunterfahren
+    Sperren (Windows-Taste + L) loest nichts aus.
     Jeder Aufruf schreibt einen Zeitstempel in eine lokale Datei. Danach traegt
     das Skript fuer jeden Tag den ersten "Kommen"- und den letzten
     "Gehen"-Stempel in die Excel-Datei ein.
@@ -31,7 +31,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Kommen', 'Gehen', 'Sync', 'Eintragen', 'Anzeigen', 'Test')]
+    [ValidateSet('Kommen', 'Gehen', 'Herunterfahren', 'Sync', 'Eintragen', 'Anzeigen', 'Test')]
     [string]$Aktion = 'Sync',
     [switch]$OhneExcel,
     [datetime]$Datum = (Get-Date).Date,
@@ -138,6 +138,18 @@ function Get-ErsteAktivitaetAusEreignisprotokoll([datetime]$Tag) {
         if ($ev) { return $ev.TimeCreated }
     } catch { }
     return $null
+}
+
+function Test-AutomatischerNeustart {
+    # Ein Neustart durch Windows Update o. Ae. ist kein Feierabend.
+    # Ereignis 1074: Eigenschaft 7 (Index 6) = Benutzer, der heruntergefahren hat.
+    try {
+        $ev = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'User32'; Id = 1074; StartTime = (Get-Date).AddMinutes(-5) } -MaxEvents 1 -ErrorAction Stop
+        $wer = [string]$ev.Properties[6].Value
+        return ($wer -match '(^|\\)SYSTEM$' -or $wer -match 'TrustedInstaller')
+    } catch {
+        return $false
+    }
 }
 
 function Get-TagesZeiten([datetime]$Tag, $Stempel) {
@@ -486,6 +498,10 @@ $hatMutex = $false
 try {
     # Stempel immer sofort setzen (schnell, auch beim Herunterfahren).
     if ($Aktion -eq 'Kommen' -or $Aktion -eq 'Gehen') { Add-Stempel $Aktion }
+    if ($Aktion -eq 'Herunterfahren') {
+        if (Test-AutomatischerNeustart) { Write-Protokoll 'Automatischer Neustart durch Windows - kein Arbeitsende eingetragen.'; return }
+        Add-Stempel 'Gehen'
+    }
     if ($OhneExcel) { return }
 
     try { $hatMutex = $mutex.WaitOne([TimeSpan]::FromMinutes(5)) } catch [System.Threading.AbandonedMutexException] { $hatMutex = $true }
@@ -495,6 +511,7 @@ try {
     switch ($Aktion) {
         'Kommen'    { Remove-AlteStempel; Invoke-Sync }
         'Gehen'     { Invoke-Sync }
+        'Herunterfahren' { Invoke-Sync }
         'Sync'      { Invoke-Sync }
         'Eintragen' { Invoke-Eintragen }
         'Anzeigen'  { Invoke-Anzeigen }
