@@ -15,7 +15,7 @@ Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 
 - **Zeile 4/5** – Beginn und Ende, minutengenau
 - **Zeile 6** – Pause 0:15. Erst wenn die Anwesenheit (Ende minus Beginn) **über 6 Stunden** liegt: 0:45
-- **Projektzeile `AB2500473`** – Arbeitszeit in Stunden, z. B. 7,53
+- **Projektzeilen** – Arbeitszeit in Stunden, z. B. 7,53. Sie kann auf mehrere Projekte verteilt werden, siehe unten.
 
 Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
@@ -25,19 +25,41 @@ Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigt
 Sobald du ins Uhrzeitfeld tippst oder klickst, stoppt der Countdown.
 Die Sekunden stellst du in `einstellungen.json` unter `FensterSekunden` ein.
 
-Darunter stehen vier Felder. Alles, was du dort eintippst, wird sofort gespeichert und steht beim nächsten Mal wieder da, auch nach einem Neustart:
-
-| Feld | Wohin in der Excel-Datei |
-|---|---|
-| **Personalnr.** | Zelle E1 in jedem Monatsblatt |
-| **Name** | Zelle J1 in jedem Monatsblatt |
-| **Auftragsnr.** | Projektzeile, Spalte A. Hierauf werden die Stunden gebucht. |
-| **Bezeichnung** | Dieselbe Projektzeile, Spalte B |
-
+Darunter stehen **Personalnr.** und **Name**. Die Personalnummer kommt in Zelle E1, der Name in J1, und zwar in jedem Monatsblatt.
 Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
-Neue Auftragsnummer: Gibt es dazu im Monatsblatt noch keine Zeile, legt das Skript sie in der ersten freien Projektzeile an.
-Die Stunden landen ab dem Tag des Wechsels dort, die alten Zeilen bleiben stehen.
-Solange das Feld Auftragsnr. leer ist, gilt die Nummer aus `einstellungen.json`.
+
+### Projekte und Verteilung
+
+Ganz unten im Fenster steht eine kleine Tabelle mit den Spalten **Auftragsnr.**, **Bezeichnung** und **Anteil**.
+Für ein weiteres Projekt tippst du einfach in die leere letzte Zeile.
+Zum Löschen klickst du links auf das Kästchen vor der Zeile und drückst `Entf`.
+
+So schreibst du den Anteil:
+
+| Anteil | Bedeutung |
+|---|---|
+| `2:30` oder `2,5` | feste Stunden |
+| `40%` | Anteil an der Arbeitszeit des Tages |
+| *leer* | der Rest. Mehrere leere Zeilen teilen sich den Rest gleichmäßig. |
+
+Beispiel bei 7,53 Stunden Arbeitszeit:
+
+| Auftragsnr. | Anteil | gebucht |
+|---|---|---|
+| AB2500473 | *leer* | 5,03 |
+| AB2500257 | `2:30` | 2,50 |
+
+- **Ohne leere Zeile** bekommt das letzte Projekt den Rest, damit immer die ganze Arbeitszeit gebucht ist.
+- **Sind die festen Stunden größer als die Arbeitszeit**, werden sie anteilig gekürzt.
+- **Ein ungültiger Anteil** wird rot markiert. Das Fenster lässt sich dann erst nach einer Korrektur schließen.
+
+In Spalte A der Projektzeile steht die Auftragsnummer, in Spalte B die Bezeichnung.
+Gibt es zu einer Nummer im Monatsblatt noch keine Zeile, legt das Skript sie in der ersten freien Projektzeile an.
+Änderst du die Verteilung im Laufe des Tages (mit `Beginn.cmd`), wird der heutige Tag neu verteilt.
+Zurückliegende Tage bleiben, wie sie sind.
+
+Alle Angaben im Fenster werden sofort gespeichert und stehen beim nächsten Mal wieder da, auch nach einem Neustart.
+Steht in der Tabelle kein Projekt, gilt die Nummer aus `einstellungen.json`.
 
 Das Fenster lässt sich mit dem Strich oben rechts **minimieren** und über die Taskleiste wieder öffnen.
 
@@ -49,7 +71,7 @@ Folgende Tage werden **nicht** angefasst:
 - Wochenenden sowie Feier- und Brückentage aus dem Blatt „Feiertage“
 - Tage, an denen schon Urlaub, Krankheit, Elternzeit usw. eingetragen ist
 - Tage, die du **von Hand geändert** hast. Das Skript erkennt das und überschreibt sie nicht mehr.
-- Projektstunden an Tagen, an denen schon andere Projekte gebucht sind. Beginn, Ende und Pause trägt es trotzdem ein.
+- Projektstunden an Tagen, an denen du von Hand auf Projekte gebucht hast, die nicht in der Tabelle stehen. Beginn, Ende und Pause trägt das Skript trotzdem ein.
 
 Ist die Datei bei dir in Excel offen, schreibt das Skript direkt hinein und speichert.
 Klappt das Eintragen beim Herunterfahren nicht, z. B. weil Windows zu schnell beendet oder jemand anderes

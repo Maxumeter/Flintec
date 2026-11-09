@@ -181,7 +181,10 @@ function Save-Status($Status) {
     # Nur die letzten 120 Tage behalten
     $grenze = (Get-Date).Date.AddDays(-120).ToString('yyyy-MM-dd')
     $o = [ordered]@{}
-    foreach ($k in ($Status.Keys | Sort-Object)) { if ($k -ge $grenze) { $o[$k] = $Status[$k] } }
+    foreach ($k in ($Status.Keys | Sort-Object)) {
+        if ($k -match '(\d{4}-\d{2}-\d{2})$' -and $Matches[1] -lt $grenze) { continue }
+        $o[$k] = $Status[$k]
+    }
     ($o | ConvertTo-Json) | Set-Content -LiteralPath $StatusDatei -Encoding UTF8
 }
 
@@ -276,7 +279,7 @@ function Get-Feiertage($Mappe) {
     return $liste
 }
 
-function Find-Projektzeile($Blatt, [string]$Nummer, [string]$Bezeichnung) {
+function Find-Projektzeile($Blatt, [string]$Nummer, [string]$Bezeichnung, [switch]$NichtAnlegen) {
     $frei = $null
     for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
         $a = ([string]$Blatt.Cells.Item($r, 1).Value2).Trim()
@@ -292,7 +295,7 @@ function Find-Projektzeile($Blatt, [string]$Nummer, [string]$Bezeichnung) {
             if ($inhalt -eq 0) { $frei = $r }
         }
     }
-    if ($frei) {
+    if ($frei -and -not $NichtAnlegen) {
         $Blatt.Cells.Item($frei, 1).NumberFormat = '@'
         $Blatt.Cells.Item($frei, 1).Value2 = $Nummer
         if ($Bezeichnung) { $Blatt.Cells.Item($frei, 2).Value2 = $Bezeichnung }
@@ -311,7 +314,54 @@ function Get-PauseFuer([TimeSpan]$Anwesenheit) {
     return ConvertTo-Zeitspanne $Einst.PauseBisSechsStunden
 }
 
-function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, [string]$ProjektNr, [string]$ProjektBez) {
+function ConvertTo-Anteil([string]$Text) {
+    # Leer = Rest, "2:30" / "2,5" = Stunden, "40%" = Prozent der Arbeitszeit
+    $t = ([string]$Text).Trim()
+    if ($t -eq '') { return @{ Art = 'Rest'; Wert = 0.0 } }
+    if ($t -match '^(\d+(?:[.,]\d+)?)\s*%$') { return @{ Art = 'Prozent'; Wert = [double]::Parse($Matches[1].Replace(',', '.'), $Inv) } }
+    if ($t -match '^(\d{1,2}):(\d{2})$') { return @{ Art = 'Stunden'; Wert = [int]$Matches[1] + [int]$Matches[2] / 60.0 } }
+    if ($t -match '^(\d+(?:[.,]\d+)?)\s*h?$') { return @{ Art = 'Stunden'; Wert = [double]::Parse($Matches[1].Replace(',', '.'), $Inv) } }
+    throw "Ungueltiger Anteil '$Text' (z. B. 2:30, 2,5 oder 40%)."
+}
+
+function Get-Verteilung([double]$Gesamt, $Projekte) {
+    # Verteilt die Arbeitszeit auf die Projekte.
+    #  - feste Stunden und Prozente zuerst
+    #  - der Rest gleichmaessig auf die Projekte ohne Angabe
+    #  - gibt es keins ohne Angabe, bekommt das letzte Projekt den Rest
+    #  - sind die festen Anteile groesser als die Arbeitszeit, werden sie anteilig gekuerzt
+    $liste = @()
+    foreach ($pj in $Projekte) {
+        try { $a = ConvertTo-Anteil $pj.Anteil } catch { Write-Protokoll $_.Exception.Message; $a = @{ Art = 'Rest'; Wert = 0.0 } }
+        $soll = 0.0
+        if ($a.Art -eq 'Stunden') { $soll = $a.Wert }
+        if ($a.Art -eq 'Prozent') { $soll = $Gesamt * $a.Wert / 100.0 }
+        $liste += [pscustomobject]@{ Nummer = $pj.Nummer; Bezeichnung = $pj.Bezeichnung; Rest = ($a.Art -eq 'Rest'); Stunden = $soll }
+    }
+    if ($liste.Count -eq 0) { return @() }
+
+    $fest = 0.0; foreach ($x in $liste) { if (-not $x.Rest) { $fest += $x.Stunden } }
+    if ($fest -gt $Gesamt -and $fest -gt 0) {
+        $faktor = $Gesamt / $fest
+        foreach ($x in $liste) { if (-not $x.Rest) { $x.Stunden = $x.Stunden * $faktor } }
+        $fest = $Gesamt
+    }
+    $rest = @($liste | Where-Object { $_.Rest })
+    if ($rest.Count -gt 0) { foreach ($x in $rest) { $x.Stunden = ($Gesamt - $fest) / $rest.Count } }
+    else { $liste[-1].Stunden += ($Gesamt - $fest) }
+
+    # Auf 2 Nachkommastellen runden, Rundungsdifferenz ausgleichen
+    $summe = 0.0
+    foreach ($x in $liste) { $x.Stunden = [math]::Round($x.Stunden, 2); $summe += $x.Stunden }
+    $diff = [math]::Round([math]::Round($Gesamt, 2) - $summe, 2)
+    if ($diff -ne 0) {
+        $ziel = if ($rest.Count -gt 0) { $rest[-1] } else { $liste[-1] }
+        $ziel.Stunden = [math]::Round($ziel.Stunden + $diff, 2)
+    }
+    return $liste
+}
+
+function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, $Projekte, $Status) {
     # Schreibt die Werte eines Tages. $B/$E/$P duerfen $null sein (= nicht aendern).
     if ($null -ne $B) { $Blatt.Cells.Item($Z_BEGINN, $Spalte).Value2 = $B.TotalDays }
     if ($null -ne $E) { $Blatt.Cells.Item($Z_ENDE, $Spalte).Value2 = $E.TotalDays }
@@ -320,21 +370,53 @@ function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, [string]$Proj
     $b2 = Get-Zellzeit $Blatt $Z_BEGINN $Spalte
     $e2 = Get-Zellzeit $Blatt $Z_ENDE $Spalte
     $p2 = Get-Zellzeit $Blatt $Z_PAUSE $Spalte
-    if (-not $ProjektNr -or $null -eq $b2 -or $null -eq $e2) { return }
+    if (@($Projekte).Count -eq 0 -or $null -eq $b2 -or $null -eq $e2) { return }
 
-    $stunden = [math]::Round(($e2 - $b2 - $(if ($p2) { $p2 } else { [TimeSpan]::Zero })).TotalHours, 2)
-    if ($stunden -le 0) { return }
+    $gesamt = [math]::Round(($e2 - $b2 - $(if ($p2) { $p2 } else { [TimeSpan]::Zero })).TotalHours, 2)
+    if ($gesamt -le 0) { return }
 
-    $zeile = Find-Projektzeile $Blatt $ProjektNr $ProjektBez
-    if (-not $zeile) { Write-Protokoll "Keine freie Projektzeile fuer $ProjektNr gefunden."; return }
+    $key = 'proj-' + $Tag.ToString('yyyy-MM-dd')
+    $text = $Tag.ToString('dd.MM.')
 
-    for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
-        if ($r -ne $zeile -and -not (Test-ZelleLeer $Blatt $r $Spalte)) {
-            Write-Protokoll ("{0:dd.MM.}: Projektstunden nicht eingetragen, weil an diesem Tag schon andere Projekte gebucht sind." -f $Tag)
-            return
+    # Zeilen, die das Skript an diesem Tag frueher schon beschrieben hat (z. B. vor einer Aenderung der Verteilung)
+    $frueher = @{}
+    if ($Status -and $Status[$key]) {
+        foreach ($nr in ($Status[$key] -split ';')) {
+            if (-not $nr) { continue }
+            $z = Find-Projektzeile $Blatt $nr '' -NichtAnlegen
+            if ($z) { $frueher[$z] = $true }
         }
     }
-    $Blatt.Cells.Item($zeile, $Spalte).Value2 = [double]$stunden
+
+    # Von Hand auf andere Projekte gebucht? Dann die Projektstunden nicht anfassen.
+    $nummern = @($Projekte | ForEach-Object { $_.Nummer })
+    for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
+        if ($frueher[$r] -or (Test-ZelleLeer $Blatt $r $Spalte)) { continue }
+        $a = ([string]$Blatt.Cells.Item($r, 1).Value2).Trim(); $bb = ([string]$Blatt.Cells.Item($r, 2).Value2).Trim()
+        if (@($nummern | Where-Object { $_ -ieq $a -or $_ -ieq $bb }).Count -gt 0) { continue }   # eines der eigenen Projekte
+        Write-Protokoll "${text}: Projektstunden nicht eingetragen, weil an diesem Tag schon von Hand auf andere Projekte gebucht wurde."
+        return
+    }
+
+    $verteilung = Get-Verteilung $gesamt $Projekte
+    $neu = @{}
+    foreach ($v in $verteilung) {
+        $z = Find-Projektzeile $Blatt $v.Nummer $v.Bezeichnung
+        if (-not $z) { Write-Protokoll "Keine freie Projektzeile fuer $($v.Nummer) gefunden."; continue }
+        if ($neu.ContainsKey($z)) { $neu[$z] += $v.Stunden } else { $neu[$z] = $v.Stunden }
+    }
+    # Alte Buchungen des Skripts entfernen, die nicht mehr zur Verteilung gehoeren
+    foreach ($z in $frueher.Keys) { if (-not $neu.ContainsKey($z)) { $Blatt.Cells.Item($z, $Spalte).Value2 = $null } }
+    foreach ($z in $neu.Keys) {
+        if ($neu[$z] -gt 0) { $Blatt.Cells.Item($z, $Spalte).Value2 = [double][math]::Round($neu[$z], 2) }
+        else { $Blatt.Cells.Item($z, $Spalte).Value2 = $null }
+    }
+    if ($Status) { $Status[$key] = ($verteilung | ForEach-Object { $_.Nummer }) -join ';' }
+    Write-Protokoll ("${text}: Projektstunden " + (($verteilung | ForEach-Object { '{0} {1:0.00} h' -f $_.Nummer, $_.Stunden }) -join ', '))
+}
+
+function Get-ProjektSignatur($Projekte) {
+    return (@($Projekte) | ForEach-Object { '{0}={1}' -f $_.Nummer, $_.Anteil }) -join ';'
 }
 
 # ---------------------------------------------------------------- Ablaeufe
@@ -363,12 +445,17 @@ function Invoke-Sync {
         try {
             # Erst pruefen, ob sich ueberhaupt etwas geaendert hat - sonst Excel gar nicht oeffnen.
             $kandidaten = @()
+            $projekte = @()
+            if ($Einst.ProjektstundenEintragen) { $projekte = @(Get-Projekte) }
+            $projSig = Get-ProjektSignatur $projekte
             foreach ($soll in $gruppe.Group) {
                 $key = $soll.Tag.ToString('yyyy-MM-dd')
                 $p = $null
                 if ($soll.Ende -and $soll.Beginn) { $p = Get-PauseFuer ($soll.Ende - $soll.Beginn) }
                 $wert = Get-StatusWert $soll.Beginn $soll.Ende $p
-                if ($status[$key] -ne $wert) { $kandidaten += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key } }
+                # Heute zusaetzlich neu verteilen, wenn die Projekte im Fenster geaendert wurden
+                $sigNeu = ($soll.Tag -eq $heute -and $soll.Beginn -and $soll.Ende -and $status['sig-' + $key] -ne $projSig)
+                if ($status[$key] -ne $wert -or $sigNeu) { $kandidaten += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key } }
             }
             $fe = Get-FensterEinst
             $kopfWert = '{0}|{1}' -f $fe.Personalnummer, $fe.Name
@@ -416,11 +503,9 @@ function Invoke-Sync {
                     continue
                 }
 
-                $pj = Get-Projekt
-                $projektNr = $null
-                if ($Einst.ProjektstundenEintragen) { $projektNr = $pj.Nummer }
-                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $projektNr $pj.Bezeichnung
+                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $projekte $status
                 $status[$k.Key] = $k.Wert
+                if ($k.Soll.Beginn -and $k.Soll.Ende) { $status['sig-' + $k.Key] = $projSig }
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
             }
@@ -449,15 +534,15 @@ function Invoke-Eintragen {
             $e2 = $e; if ($null -eq $e2) { $e2 = Get-Zellzeit $blatt $Z_ENDE $spalte }
             if ($null -ne $b2 -and $null -ne $e2 -and (Test-ZelleLeer $blatt $Z_PAUSE $spalte)) { $p = Get-PauseFuer ($e2 - $b2) }
         }
-        $pj = Get-Projekt
-        $nr = $Projekt; $bez = ''
-        if (-not $nr -and $Einst.ProjektstundenEintragen) { $nr = $pj.Nummer; $bez = $pj.Bezeichnung }
-        Set-Tag $blatt $spalte $Datum $b $e $p $nr $bez
+        $status = Get-Status
+        $projekte = @()
+        if ($Projekt) { $projekte = @([pscustomobject]@{ Nummer = $Projekt; Bezeichnung = ''; Anteil = '' }) }
+        elseif ($Einst.ProjektstundenEintragen) { $projekte = @(Get-Projekte) }
+        Set-Tag $blatt $spalte $Datum $b $e $p $projekte $status
         $ok = $true
     } finally {
         Close-Mappe $sitzung $ok
     }
-    $status = Get-Status
     $status[$Datum.ToString('yyyy-MM-dd')] = 'manuell'
     Save-Status $status
     Write-Protokoll ("{0}: von Hand eingetragen (Beginn {1}, Ende {2}, Pause {3})." -f $Datum.ToString('ddd dd.MM.yyyy', $DeKultur), $Beginn, $Ende, $Pause)
@@ -469,30 +554,36 @@ function Test-BeginnErfasst([datetime]$Tag) {
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekt = ''; Bezeichnung = '' }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @() }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($null -ne $o.AutomatischSchliessen) { $e.AutomatischSchliessen = [bool]$o.AutomatischSchliessen }
             if ($o.Personalnummer) { $e.Personalnummer = ([string]$o.Personalnummer).Trim() }
             if ($o.Name) { $e.Name = ([string]$o.Name).Trim() }
-            if ($o.Projekt) { $e.Projekt = ([string]$o.Projekt).Trim() }
-            if ($o.Bezeichnung) { $e.Bezeichnung = ([string]$o.Bezeichnung).Trim() }
+            if ($o.PSObject.Properties['Projekte']) {
+                $e.Projekte = @($o.Projekte | Where-Object { $_ -and ([string]$_.Nummer).Trim() } | ForEach-Object {
+                    [ordered]@{ Nummer = ([string]$_.Nummer).Trim(); Bezeichnung = ([string]$_.Bezeichnung).Trim(); Anteil = ([string]$_.Anteil).Trim() } })
+            } elseif ($o.Projekt) {
+                # Aeltere Version: nur ein Projekt
+                $e.Projekte = @([ordered]@{ Nummer = ([string]$o.Projekt).Trim(); Bezeichnung = ([string]$o.Bezeichnung).Trim(); Anteil = '' })
+            }
         }
     } catch { }
     return $e
 }
 
-function Get-Projekt {
-    # Projekt aus dem Fenster; solange dort nichts steht, das aus einstellungen.json
-    $fe = Get-FensterEinst
-    $nr = $fe.Projekt
-    if (-not $nr) { $nr = [string]$Einst.Projekt }
-    return [pscustomobject]@{ Nummer = $nr; Bezeichnung = $fe.Bezeichnung }
+function Get-Projekte {
+    # Projekte aus dem Fenster; solange dort keins steht, das aus einstellungen.json
+    $liste = @((Get-FensterEinst).Projekte | ForEach-Object { [pscustomobject]$_ })
+    if ($liste.Count -eq 0 -and $Einst.Projekt) {
+        $liste = @([pscustomobject]@{ Nummer = [string]$Einst.Projekt; Bezeichnung = ''; Anteil = '' })
+    }
+    return $liste
 }
 
 function Save-FensterEinst($E) {
-    try { ($E | ConvertTo-Json) | Set-Content -LiteralPath $FensterDatei -Encoding UTF8 } catch { }
+    try { ($E | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $FensterDatei -Encoding UTF8 } catch { }
 }
 
 function Set-Kopfdaten($Mappe, [string]$Personalnummer, [string]$Name) {
@@ -531,7 +622,7 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.ShowInTaskbar = $true
     $f.StartPosition = 'Manual'
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(300, 250)
+    $f.ClientSize = New-Object System.Drawing.Size(420, 352)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Arbeitsbeginn am ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
@@ -576,24 +667,56 @@ function Show-BeginnFenster([datetime]$Tag) {
         $t = New-Object System.Windows.Forms.TextBox
         $t.Text = $Wert
         $t.Location = New-Object System.Drawing.Point(104, $Y)
-        $t.Width = 184
+        $t.Width = 304
         $script:FeldLabel = $l
         return $t
     }
-    $pj = Get-Projekt
     $tbPnr  = New-Feld 'Personalnr.:' 118 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
     $tbName = New-Feld 'Name:'        150 $fe.Name;           $beschriftungen += $script:FeldLabel
-    $tbProj = New-Feld 'Auftragsnr.:' 182 $pj.Nummer;         $beschriftungen += $script:FeldLabel
-    $tbBez  = New-Feld 'Bezeichnung:' 214 $pj.Bezeichnung;    $beschriftungen += $script:FeldLabel
-    $felder = @($tbPnr, $tbName, $tbProj, $tbBez)
+    $felder = @($tbPnr, $tbName)
+
+    # Projekte: Tabelle mit Auftragsnr., Bezeichnung und Anteil
+    $lblPj = New-Object System.Windows.Forms.Label
+    $lblPj.Text = 'Projekte  (Anteil: 2:30 / 2,5 / 40%  -  leer = Rest)'
+    $lblPj.Location = New-Object System.Drawing.Point(12, 186)
+    $lblPj.AutoSize = $true
+    $beschriftungen += $lblPj
+
+    $grid = New-Object System.Windows.Forms.DataGridView
+    $grid.Location = New-Object System.Drawing.Point(12, 210)
+    $grid.Size = New-Object System.Drawing.Size(396, 130)
+    $grid.AllowUserToAddRows = $true
+    $grid.AllowUserToDeleteRows = $true
+    $grid.AllowUserToResizeRows = $false
+    $grid.RowHeadersWidth = 28
+    $grid.AutoSizeColumnsMode = 'Fill'
+    $grid.ColumnHeadersHeightSizeMode = 'AutoSize'
+    $grid.BackgroundColor = [System.Drawing.SystemColors]::Window
+    [void]$grid.Columns.Add('Nummer', 'Auftragsnr.')
+    [void]$grid.Columns.Add('Bezeichnung', 'Bezeichnung')
+    [void]$grid.Columns.Add('Anteil', 'Anteil')
+    $grid.Columns[0].FillWeight = 32
+    $grid.Columns[1].FillWeight = 46
+    $grid.Columns[2].FillWeight = 22
+    foreach ($pj in (Get-Projekte)) { [void]$grid.Rows.Add($pj.Nummer, $pj.Bezeichnung, $pj.Anteil) }
+
+    $leseGrid = {
+        $liste = @()
+        foreach ($zeile in $grid.Rows) {
+            if ($zeile.IsNewRow) { continue }
+            $nr = ([string]$zeile.Cells[0].Value).Trim()
+            if (-not $nr) { continue }
+            $liste += [ordered]@{ Nummer = $nr; Bezeichnung = ([string]$zeile.Cells[1].Value).Trim(); Anteil = ([string]$zeile.Cells[2].Value).Trim() }
+        }
+        , $liste
+    }
 
     # Sofort merken, sobald sich etwas aendert (bleibt auch nach Neustart erhalten)
     $merken = {
         $e2 = Get-FensterEinst
         $e2.Personalnummer = $tbPnr.Text.Trim()
         $e2.Name = $tbName.Text.Trim()
-        $e2.Projekt = $tbProj.Text.Trim()
-        $e2.Bezeichnung = $tbBez.Text.Trim()
+        $e2.Projekte = & $leseGrid
         $e2.AutomatischSchliessen = $cb.Checked
         Save-FensterEinst $e2
     }
@@ -624,9 +747,23 @@ function Show-BeginnFenster([datetime]$Tag) {
         $feld.Add_MouseDown({ & $stoppen })
         $feld.Add_TextChanged({ & $merken })
     }
+    $grid.Add_CellBeginEdit({ & $stoppen })
+    $grid.Add_MouseDown({ & $stoppen })
+    $grid.Add_CellEndEdit({
+        & $merken
+        $zelle = $grid.Rows[$_.RowIndex].Cells[2]
+        try { [void](ConvertTo-Anteil ([string]$zelle.Value)); $zelle.Style.BackColor = [System.Drawing.Color]::Empty }
+        catch { $zelle.Style.BackColor = [System.Drawing.Color]::MistyRose }
+    })
+    $grid.Add_UserDeletedRow({ & $merken })
 
     $script:FensterZeit = $null
     $ok.Add_Click({
+        foreach ($zeile in $grid.Rows) {
+            if ($zeile.IsNewRow) { continue }
+            try { [void](ConvertTo-Anteil ([string]$zeile.Cells[2].Value)) }
+            catch { $zeile.Cells[2].Style.BackColor = [System.Drawing.Color]::MistyRose; $grid.CurrentCell = $zeile.Cells[2]; return }
+        }
         try {
             $script:FensterZeit = ConvertTo-Zeitspanne $tb.Text
             $f.DialogResult = 'OK'
@@ -637,7 +774,7 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder)
+    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
     # Beim Schliessen ebenfalls merken (auch bei "Spaeter")
     $f.Add_FormClosing({ & $merken })
     $f.AcceptButton = $ok
@@ -713,14 +850,12 @@ function Invoke-Test {
         while ($n -gt 0) { $m = ($n - 1) % 26; $buchstabe = [char](65 + $m) + $buchstabe; $n = [int][math]::Floor(($n - 1) / 26) }
         Write-Host "Blatt:    $($blatt.Name)"
         Write-Host ("Spalte:   {0} ({1:dd.MM.yyyy})" -f $buchstabe, $Datum)
-        $pj = Get-Projekt
-        $zeile = $null
-        for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
-            $a = ([string]$blatt.Cells.Item($r, 1).Value2).Trim(); $b = ([string]$blatt.Cells.Item($r, 2).Value2).Trim()
-            if ($a -ieq $pj.Nummer -or $b -ieq $pj.Nummer) { $zeile = $r; break }
+        foreach ($pj in (Get-Projekte)) {
+            $zeile = Find-Projektzeile $blatt $pj.Nummer '' -NichtAnlegen
+            $anteil = if ($pj.Anteil) { $pj.Anteil } else { 'Rest' }
+            if ($zeile) { Write-Host "Projekt:  $($pj.Nummer) ($anteil) in Zeile $zeile" }
+            else { Write-Host "Projekt:  $($pj.Nummer) ($anteil) steht noch nicht im Blatt - wird in die erste freie Zeile geschrieben." }
         }
-        if ($zeile) { Write-Host "Projekt:  $($pj.Nummer) in Zeile $zeile" }
-        else { Write-Host "Projekt:  $($pj.Nummer) steht noch nicht im Blatt - wird in die erste freie Zeile geschrieben." }
         Write-Host ("Feiertage gefunden: {0}" -f @(Get-Feiertage $sitzung.Mappe).Count)
         Write-Host 'Test OK - es wurde nichts geaendert.' -ForegroundColor Green
     } finally {
