@@ -56,6 +56,7 @@ New-Item -ItemType Directory -Force -Path $DatenOrdner | Out-Null
 $StempelDatei = Join-Path $DatenOrdner 'stempel.csv'
 $StatusDatei  = Join-Path $DatenOrdner 'uebertragen.json'
 $LogDatei     = Join-Path $DatenOrdner 'protokoll.log'
+$FensterDatei = Join-Path $DatenOrdner 'fenster.json'
 
 # Zeilen im Tabellenblatt (siehe 2026_Stundennachweis.xlsx)
 $Z_DATUM = 3; $Z_BEGINN = 4; $Z_ENDE = 5; $Z_PAUSE = 6
@@ -299,7 +300,8 @@ function Get-StatusWert($Beginn, $Ende, $PauseZeit) {
 }
 
 function Get-PauseFuer([TimeSpan]$Anwesenheit) {
-    if ($Anwesenheit.TotalHours -ge 6) { return ConvertTo-Zeitspanne $Einst.Pause }
+    # Erst wenn 6 Stunden ueberschritten sind, gilt die lange Pause.
+    if ($Anwesenheit.TotalHours -gt 6) { return ConvertTo-Zeitspanne $Einst.Pause }
     return ConvertTo-Zeitspanne $Einst.PauseBisSechsStunden
 }
 
@@ -448,6 +450,20 @@ function Test-BeginnErfasst([datetime]$Tag) {
     return [bool](Get-Stempel | Where-Object { $_.Art -eq 'Beginn' -and $_.Zeit.Date -eq $Tag.Date } | Select-Object -First 1)
 }
 
+function Get-AutoSchliessen {
+    # Gemerkte Einstellung des Hakens im Fenster (Standard: aus)
+    try {
+        if (Test-Path -LiteralPath $FensterDatei) {
+            return [bool]((Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json).AutomatischSchliessen)
+        }
+    } catch { }
+    return $false
+}
+
+function Set-AutoSchliessen([bool]$Wert) {
+    try { (@{ AutomatischSchliessen = $Wert } | ConvertTo-Json) | Set-Content -LiteralPath $FensterDatei -Encoding UTF8 } catch { }
+}
+
 function Show-BeginnFenster([datetime]$Tag) {
     # Kleines Fenster oben rechts. Gibt die eingetippte Uhrzeit zurueck oder $null.
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -464,7 +480,7 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.ShowInTaskbar = $true
     $f.StartPosition = 'Manual'
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(300, 92)
+    $f.ClientSize = New-Object System.Drawing.Size(300, 116)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Arbeitsbeginn am ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
@@ -488,6 +504,37 @@ function Show-BeginnFenster([datetime]$Tag) {
     $spaeter.Size = New-Object System.Drawing.Size(90, 30)
     $spaeter.DialogResult = 'Cancel'
 
+    $sekunden = 30
+    if ($Einst.FensterSekunden) { $sekunden = [int]$Einst.FensterSekunden }
+
+    $cb = New-Object System.Windows.Forms.CheckBox
+    $cb.Text = ('Automatisch schlie' + [char]0x00DF + 'en nach {0} s') -f $sekunden
+    $cb.Location = New-Object System.Drawing.Point(12, 84)
+    $cb.AutoSize = $true
+    $cb.Checked = Get-AutoSchliessen
+
+    # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
+    # Bei 0 wird die angezeigte Uhrzeit uebernommen.
+    $script:Rest = $sekunden
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 1000
+    $timer.Add_Tick({
+        $script:Rest--
+        if ($script:Rest -le 0) { $timer.Stop(); $ok.PerformClick() }
+        else { $ok.Text = 'Eintragen ({0})' -f $script:Rest }
+    })
+    $stoppen = {
+        $timer.Stop()
+        $ok.Text = 'Eintragen'
+    }
+    $cb.Add_CheckedChanged({
+        Set-AutoSchliessen $cb.Checked
+        if ($cb.Checked) { $script:Rest = $sekunden; $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
+        else { & $stoppen }
+    })
+    $tb.Add_KeyDown({ & $stoppen })
+    $tb.Add_MouseDown({ & $stoppen })
+
     $script:FensterZeit = $null
     $ok.Add_Click({
         try {
@@ -500,15 +547,19 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter))
+    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb))
     $f.AcceptButton = $ok
     $f.CancelButton = $spaeter
 
     $bereich = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
     $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
-    $f.Add_Shown({ $f.Activate(); $tb.Focus(); $tb.SelectAll() })
+    $f.Add_Shown({
+        $f.Activate(); $tb.Focus(); $tb.SelectAll()
+        if ($cb.Checked) { $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
+    })
 
     $ergebnis = $f.ShowDialog()
+    $timer.Stop(); $timer.Dispose()
     $f.Dispose()
     if ($ergebnis -eq [System.Windows.Forms.DialogResult]::OK -and $null -ne $script:FensterZeit) {
         return $Tag.Date.Add($script:FensterZeit)

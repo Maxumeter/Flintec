@@ -14,11 +14,17 @@ Trägt jeden Arbeitstag **Arbeitsbeginn, Arbeitsende, Pause und Projektstunden**
 Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 
 - **Zeile 4/5** – Beginn und Ende, minutengenau
-- **Zeile 6** – Pause 0:45 (unter 6 Stunden Anwesenheit: 0:15)
+- **Zeile 6** – Pause 0:15. Erst wenn die Anwesenheit (Ende minus Beginn) **über 6 Stunden** liegt: 0:45
 - **Projektzeile `AB2500473`** – Arbeitszeit in Stunden, z. B. 7,53
 
 Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
+
+Unten im Fenster gibt es den Haken **„Automatisch schließen nach 30 s“**. Das Fenster merkt sich die Einstellung.
+Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigte Uhrzeit übernommen und das Fenster schließt sich.
+Sobald du ins Uhrzeitfeld tippst oder klickst, stoppt der Countdown.
+Die Sekunden stellst du in `einstellungen.json` unter `FensterSekunden` ein.
+
 Ist der Beginn für heute erfasst, erscheint das Fenster nicht mehr. Am Wochenende erscheint es gar nicht.
 Zum Korrigieren öffnest du es mit **`Beginn.cmd`** jederzeit wieder.
 
@@ -41,7 +47,7 @@ Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zähl
 2. `einstellungen.json` mit dem Editor öffnen und prüfen:
    - `Datei` – Pfad zur Excel-Datei. `{Jahr}` wird automatisch ersetzt, 2027 läuft also von allein weiter.
    - `Projekt` – Auftragsnummer, auf die gebucht wird
-   - `Pause` / `PauseBisSechsStunden` – Pausenzeiten (0:45 bzw. 0:15 unter 6 Stunden)
+   - `Pause` / `PauseBisSechsStunden` – Pausenzeiten (0:45 erst über 6 Stunden, sonst 0:15)
    - `ProjektstundenEintragen` – auf `false` setzen, wenn nur Beginn, Ende und Pause eingetragen werden sollen
 3. Doppelklick auf **`Installieren.cmd`**.
    Am Ende muss „Test OK“ in Grün erscheinen.

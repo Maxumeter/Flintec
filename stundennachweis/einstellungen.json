@@ -5,6 +5,7 @@
     "Pause": "0:45",
     "PauseBisSechsStunden": "0:15",
     "TageRueckwirkend": 14,
+    "FensterSekunden": 30,
     "WochenendeUeberspringen": true,
     "FeiertageUeberspringen": true
 }
