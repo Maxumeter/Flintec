@@ -18,6 +18,9 @@ Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 - **Projektzeilen** – Arbeitszeit in Stunden, z. B. 7,53. Sie kann auf mehrere Projekte verteilt werden, siehe unten.
 
 Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
+Oben rechts im Fenster stehen die **Gesamtstunden des Tages** bis jetzt, z. B. `Heute: 6:12 h (6,20)`.
+Gerechnet wird vom Arbeitsbeginn bis zur aktuellen Uhrzeit, die Pause ist schon abgezogen.
+Die Anzeige aktualisiert sich alle 15 Sekunden und sofort, wenn du den Beginn änderst.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
 
 Unten im Fenster gibt es den Haken **„Automatisch schließen nach 30 s“**. Das Fenster merkt sich die Einstellung.

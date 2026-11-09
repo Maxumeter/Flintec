@@ -625,7 +625,7 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.ClientSize = New-Object System.Drawing.Size(420, 352)
 
     $lbl = New-Object System.Windows.Forms.Label
-    $lbl.Text = 'Arbeitsbeginn am ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
+    $lbl.Text = 'Arbeitsbeginn ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
     $lbl.Location = New-Object System.Drawing.Point(12, 12)
     $lbl.AutoSize = $true
 
@@ -634,6 +634,29 @@ function Show-BeginnFenster([datetime]$Tag) {
     $tb.Location = New-Object System.Drawing.Point(12, 46)
     $tb.Width = 70
     $tb.TextAlign = 'Center'
+
+    # Gesamtstunden des Tages bis jetzt (Beginn bis aktuelle Uhrzeit, Pause abgezogen)
+    $lblGesamt = New-Object System.Windows.Forms.Label
+    $lblGesamt.Location = New-Object System.Drawing.Point(200, 12)
+    $lblGesamt.Size = New-Object System.Drawing.Size(208, 22)
+    $lblGesamt.TextAlign = 'TopRight'
+    $lblGesamt.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $tip = New-Object System.Windows.Forms.ToolTip
+    $tip.SetToolTip($lblGesamt, 'Arbeitszeit heute von Beginn bis jetzt, Pause bereits abgezogen')
+    $zeigeGesamt = {
+        try { $bz = ConvertTo-Zeitspanne $tb.Text } catch { $bz = $null }
+        if ($null -eq $bz) { $lblGesamt.Text = 'Heute: -'; return }
+        $anw = (Get-Minutengenau (Get-Date)) - $bz
+        $std = 0.0
+        if ($anw.TotalMinutes -gt 0) {
+            $arbeit = $anw - (Get-PauseFuer $anw)
+            if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
+        }
+        $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
+    }
+    $uhr = New-Object System.Windows.Forms.Timer
+    $uhr.Interval = 15000
+    $uhr.Add_Tick({ & $zeigeGesamt })
 
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = 'Eintragen'
@@ -741,6 +764,7 @@ function Show-BeginnFenster([datetime]$Tag) {
         else { & $stoppen }
     })
     $tb.Add_KeyDown({ & $stoppen })
+    $tb.Add_TextChanged({ & $zeigeGesamt })
     $tb.Add_MouseDown({ & $stoppen })
     foreach ($feld in $felder) {
         $feld.Add_KeyDown({ & $stoppen })
@@ -774,7 +798,7 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
+    $f.Controls.AddRange(@($lbl, $lblGesamt, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
     # Beim Schliessen ebenfalls merken (auch bei "Spaeter")
     $f.Add_FormClosing({ & $merken })
     $f.AcceptButton = $ok
@@ -784,11 +808,13 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
     $f.Add_Shown({
         $f.Activate(); $tb.Focus(); $tb.SelectAll()
+        & $zeigeGesamt; $uhr.Start()
         if ($cb.Checked) { $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
     })
 
     $ergebnis = $f.ShowDialog()
     $timer.Stop(); $timer.Dispose()
+    $uhr.Stop(); $uhr.Dispose()
     $f.Dispose()
     if ($ergebnis -eq [System.Windows.Forms.DialogResult]::OK -and $null -ne $script:FensterZeit) {
         return $Tag.Date.Add($script:FensterZeit)
