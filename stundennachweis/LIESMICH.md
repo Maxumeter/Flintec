@@ -21,6 +21,12 @@ Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
 Oben rechts im Fenster stehen die **Gesamtstunden des Tages** bis jetzt, z. B. `Heute: 6:12 h (6,20)`.
 Gerechnet wird vom Arbeitsbeginn bis zur aktuellen Uhrzeit, die Pause ist schon abgezogen.
 Die Anzeige aktualisiert sich alle 15 Sekunden und sofort, wenn du den Beginn änderst.
+
+Darunter, rechts neben dem Haken, stehen die **Wochenstunden**, z. B. `Woche: 31:45 h (31,75)`.
+Das ist die Zeile „Gesamtstunden“ des Stundennachweises von Montag bis gestern, also inklusive Urlaub, Feiertagen und Krankheit, plus die Stunden von heute bis jetzt.
+Die Werte der Vortage merkt sich das Skript jedes Mal, wenn es in die Excel-Datei schreibt, meist also beim Herunterfahren.
+Für die Anzeige muss Excel deshalb nicht geöffnet werden.
+In der ersten Woche nach dem Update fehlen die Tage davor noch.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
 
 Unten im Fenster gibt es den Haken **„Automatisch schließen nach 30 s“**. Das Fenster merkt sich die Einstellung.

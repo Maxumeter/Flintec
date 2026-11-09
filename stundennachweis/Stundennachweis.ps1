@@ -57,6 +57,8 @@ $StempelDatei = Join-Path $DatenOrdner 'stempel.csv'
 $StatusDatei  = Join-Path $DatenOrdner 'uebertragen.json'
 $LogDatei     = Join-Path $DatenOrdner 'protokoll.log'
 $FensterDatei = Join-Path $DatenOrdner 'fenster.json'
+$WocheDatei   = Join-Path $DatenOrdner 'woche.json'
+$Z_GESAMT = 32   # Zeile "Gesamtstunden" (Projekte + Urlaub/Feiertag/Krankheit ...)
 
 # Zeilen im Tabellenblatt (siehe 2026_Stundennachweis.xlsx)
 $Z_DATUM = 3; $Z_BEGINN = 4; $Z_ENDE = 5; $Z_PAUSE = 6
@@ -419,6 +421,54 @@ function Get-ProjektSignatur($Projekte) {
     return (@($Projekte) | ForEach-Object { '{0}={1}' -f $_.Nummer, $_.Anteil }) -join ';'
 }
 
+function Get-Wochenanfang([datetime]$Tag) {
+    return $Tag.Date.AddDays(-(([int]$Tag.DayOfWeek + 6) % 7))   # Montag
+}
+
+function Update-WochenCache($Mappe, [int]$Jahr) {
+    # Merkt sich die Gesamtstunden (Zeile 32) der Tage dieser Woche, damit das Fenster
+    # die Wochenstunden anzeigen kann, ohne Excel oeffnen zu muessen.
+    $cache = @{}
+    try {
+        if (Test-Path -LiteralPath $WocheDatei) {
+            $o = Get-Content -LiteralPath $WocheDatei -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pp in $o.PSObject.Properties) { $cache[$pp.Name] = [double]$pp.Value }
+        }
+    } catch { }
+    $heute = (Get-Date).Date
+    $montag = Get-Wochenanfang $heute
+    for ($tag = $montag; $tag -le $heute; $tag = $tag.AddDays(1)) {
+        if ($tag.Year -ne $Jahr) { continue }
+        try {
+            $blatt = Get-Blatt $Mappe $tag
+            $spalte = Find-Spalte $blatt $tag
+            $v = $blatt.Cells.Item($Z_GESAMT, $spalte).Value2
+            $cache[$tag.ToString('yyyy-MM-dd')] = $(if ($v -is [double]) { [math]::Round($v, 2) } else { 0.0 })
+        } catch { }
+    }
+    # Nur diese und letzte Woche behalten
+    $grenze = $montag.AddDays(-7).ToString('yyyy-MM-dd')
+    $o = [ordered]@{}
+    foreach ($k in ($cache.Keys | Sort-Object)) { if ($k -ge $grenze) { $o[$k] = $cache[$k] } }
+    try { ($o | ConvertTo-Json) | Set-Content -LiteralPath $WocheDatei -Encoding UTF8 } catch { }
+}
+
+function Get-WochenstundenBisGestern {
+    # Summe der gemerkten Gesamtstunden von Montag bis gestern
+    $summe = 0.0
+    try {
+        if (-not (Test-Path -LiteralPath $WocheDatei)) { return 0.0 }
+        $o = Get-Content -LiteralPath $WocheDatei -Raw -Encoding UTF8 | ConvertFrom-Json
+        $heute = (Get-Date).Date
+        $von = (Get-Wochenanfang $heute).ToString('yyyy-MM-dd')
+        $bis = $heute.ToString('yyyy-MM-dd')
+        foreach ($pp in $o.PSObject.Properties) {
+            if ($pp.Name -ge $von -and $pp.Name -lt $bis) { $summe += [double]$pp.Value }
+        }
+    } catch { }
+    return $summe
+}
+
 # ---------------------------------------------------------------- Ablaeufe
 
 function Invoke-Sync {
@@ -509,6 +559,7 @@ function Invoke-Sync {
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
             }
+            Update-WochenCache $sitzung.Mappe $jahr
         } catch {
             Write-Protokoll "FEHLER: $($_.Exception.Message)"
         } finally {
@@ -539,6 +590,7 @@ function Invoke-Eintragen {
         if ($Projekt) { $projekte = @([pscustomobject]@{ Nummer = $Projekt; Bezeichnung = ''; Anteil = '' }) }
         elseif ($Einst.ProjektstundenEintragen) { $projekte = @(Get-Projekte) }
         Set-Tag $blatt $spalte $Datum $b $e $p $projekte $status
+        Update-WochenCache $sitzung.Mappe $Datum.Year
         $ok = $true
     } finally {
         Close-Mappe $sitzung $ok
@@ -643,16 +695,29 @@ function Show-BeginnFenster([datetime]$Tag) {
     $lblGesamt.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
     $tip = New-Object System.Windows.Forms.ToolTip
     $tip.SetToolTip($lblGesamt, 'Arbeitszeit heute von Beginn bis jetzt, Pause bereits abgezogen')
+    $lblWoche = New-Object System.Windows.Forms.Label
+    $lblWoche.Location = New-Object System.Drawing.Point(240, 84)
+    $lblWoche.Size = New-Object System.Drawing.Size(208, 22)
+    $lblWoche.TextAlign = 'TopRight'
+    $lblWoche.Font = $lblGesamt.Font
+    $tip.SetToolTip($lblWoche, 'Gesamtstunden dieser Woche (Mo bis heute) laut Stundennachweis plus die Stunden von heute bis jetzt')
+    $wocheBisGestern = Get-WochenstundenBisGestern
+
     $zeigeGesamt = {
         try { $bz = ConvertTo-Zeitspanne $tb.Text } catch { $bz = $null }
-        if ($null -eq $bz) { $lblGesamt.Text = 'Heute: -'; return }
-        $anw = (Get-Minutengenau (Get-Date)) - $bz
         $std = 0.0
-        if ($anw.TotalMinutes -gt 0) {
-            $arbeit = $anw - (Get-PauseFuer $anw)
-            if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
+        if ($null -ne $bz) {
+            $anw = (Get-Minutengenau (Get-Date)) - $bz
+            if ($anw.TotalMinutes -gt 0) {
+                $arbeit = $anw - (Get-PauseFuer $anw)
+                if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
+            }
+            $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
+        } else {
+            $lblGesamt.Text = 'Heute: -'
         }
-        $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
+        $woche = $wocheBisGestern + [math]::Round($std, 2)
+        $lblWoche.Text = 'Woche: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($woche))), $woche.ToString('0.00', $DeKultur)
 
         # Stunden pro Projekt in der Tabelle (Spalte "Stunden")
         if (-not $grid) { return }
@@ -818,7 +883,7 @@ function Show-BeginnFenster([datetime]$Tag) {
         }
     })
 
-    $f.Controls.AddRange(@($lbl, $lblGesamt, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
+    $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
     # Beim Schliessen ebenfalls merken (auch bei "Spaeter")
     $f.Add_FormClosing({ & $merken })
     $f.AcceptButton = $ok
