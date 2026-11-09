@@ -1,21 +1,26 @@
 # Stundennachweis automatisch ausfüllen
 
 Trägt jeden Arbeitstag **Arbeitsbeginn, Arbeitsende, Pause und Projektstunden** in
-`2026_Stundennachweis - Ossowski.xlsx` ein. Dafür musst du nichts tun.
+`2026_Stundennachweis - Ossowski.xlsx` ein. Du tippst nur morgens deinen Arbeitsbeginn ein.
 
 ## So funktioniert es
 
 | Wann                         | Was passiert                                                         |
-|------------------------------|----------------------------------------------------------------------|
-| Anmelden / PC entsperren     | Uhrzeit wird gemerkt. Die **erste** des Tages ist der Arbeitsbeginn. |
-| Herunterfahren               | Uhrzeit wird als **Arbeitsende** eingetragen.                        |
-| PC sperren (Windows-Taste+L) | Nichts.                                                              |
+|---|---|
+| Erstes Anmelden / Entsperren am Tag | Kleines Fenster **oben rechts**: Arbeitsbeginn eintippen (z. B. `7:45` oder `745`), Enter. |
+| Herunterfahren               | Uhrzeit wird als **Arbeitsende** eingetragen. |
+| PC sperren (Windows-Taste+L) | Nichts. |
 
 Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 
 - **Zeile 4/5** – Beginn und Ende, minutengenau
-- **Zeile 6** – Pause 0:45 (bei 6 Stunden oder weniger: 0:00)
+- **Zeile 6** – Pause 0:45 (unter 6 Stunden Anwesenheit: 0:15)
 - **Projektzeile `AB2500473`** – Arbeitszeit in Stunden, z. B. 7,53
+
+Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
+Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
+Ist der Beginn für heute erfasst, erscheint das Fenster nicht mehr. Am Wochenende erscheint es gar nicht.
+Zum Korrigieren öffnest du es mit **`Beginn.cmd`** jederzeit wieder.
 
 Folgende Tage werden **nicht** angefasst:
 
@@ -36,14 +41,14 @@ Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zähl
 2. `einstellungen.json` mit dem Editor öffnen und prüfen:
    - `Datei` – Pfad zur Excel-Datei. `{Jahr}` wird automatisch ersetzt, 2027 läuft also von allein weiter.
    - `Projekt` – Auftragsnummer, auf die gebucht wird
-   - `Pause` / `PauseBisSechsStunden` – Pausenzeiten
+   - `Pause` / `PauseBisSechsStunden` – Pausenzeiten (0:45 bzw. 0:15 unter 6 Stunden)
    - `ProjektstundenEintragen` – auf `false` setzen, wenn nur Beginn, Ende und Pause eingetragen werden sollen
 3. Doppelklick auf **`Installieren.cmd`**.
    Am Ende muss „Test OK“ in Grün erscheinen.
 
 Ab dann läuft alles automatisch. **Wichtig:** Zum Feierabend den PC herunterfahren.
 Hattest du schon die erste Version installiert, `Installieren.cmd` einfach noch einmal ausführen.
-Die alte Aufgabe für das Sperren wird dabei entfernt.
+Die Aufgaben werden dabei aktualisiert, die alte Aufgabe für das Sperren wird entfernt.
 
 ## Nützliches
 

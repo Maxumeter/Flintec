@@ -37,16 +37,17 @@ function New-HerunterfahrenTrigger {
 }
 
 $principal = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType Interactive -RunLevel Limited
-$einst = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances Queue
+# Das Fenster fuer den Arbeitsbeginn darf lange offen bleiben.
+$einstFenster = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 12) -MultipleInstances Queue
 $einstKurz = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances Parallel
 
 $aufgaben = @(
     @{ Name = 'Stundennachweis - Kommen'
-       Beschreibung = 'Merkt sich beim Anmelden/Entsperren die Uhrzeit und traegt den Arbeitsbeginn ein.'
+       Beschreibung = 'Fragt beim ersten Anmelden/Entsperren des Tages den Arbeitsbeginn ab und traegt ihn ein.'
        Trigger = @((New-ScheduledTaskTrigger -AtLogOn -User $benutzer), (New-SitzungsTrigger 8))
-       Aktion = (New-Aktion '-Aktion Kommen'); Einst = $einst },
+       Aktion = (New-Aktion '-Aktion Kommen'); Einst = $einstFenster },
     @{ Name = 'Stundennachweis - Herunterfahren'
        Beschreibung = 'Traegt beim Herunterfahren das Arbeitsende ein (klappt das nicht mehr, beim naechsten Anmelden).'
        Trigger = @(New-HerunterfahrenTrigger)
@@ -73,8 +74,9 @@ Write-Host 'Pruefe den Zugriff auf die Excel-Datei ...'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $skript -Aktion Test
 Write-Host ''
 if ($fehler -eq 0) {
-    Write-Host 'Fertig. Ab jetzt werden Beginn und Ende automatisch eingetragen.' -ForegroundColor Green
-    Write-Host 'Das Arbeitsende wird beim Herunterfahren eingetragen.'
+    Write-Host 'Fertig.' -ForegroundColor Green
+    Write-Host 'Arbeitsbeginn: kleines Fenster oben rechts beim ersten Anmelden/Entsperren des Tages.'
+    Write-Host 'Arbeitsende:   wird beim Herunterfahren eingetragen.'
 } else {
     Write-Host 'Nicht alle Aufgaben konnten angelegt werden. Siehe Fehlermeldungen oben.' -ForegroundColor Yellow
 }
