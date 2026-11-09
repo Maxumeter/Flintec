@@ -622,7 +622,7 @@ function Show-BeginnFenster([datetime]$Tag) {
     $f.ShowInTaskbar = $true
     $f.StartPosition = 'Manual'
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(420, 352)
+    $f.ClientSize = New-Object System.Drawing.Size(460, 352)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Arbeitsbeginn ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
@@ -637,7 +637,7 @@ function Show-BeginnFenster([datetime]$Tag) {
 
     # Gesamtstunden des Tages bis jetzt (Beginn bis aktuelle Uhrzeit, Pause abgezogen)
     $lblGesamt = New-Object System.Windows.Forms.Label
-    $lblGesamt.Location = New-Object System.Drawing.Point(200, 12)
+    $lblGesamt.Location = New-Object System.Drawing.Point(240, 12)
     $lblGesamt.Size = New-Object System.Drawing.Size(208, 22)
     $lblGesamt.TextAlign = 'TopRight'
     $lblGesamt.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
@@ -701,7 +701,7 @@ function Show-BeginnFenster([datetime]$Tag) {
         $t = New-Object System.Windows.Forms.TextBox
         $t.Text = $Wert
         $t.Location = New-Object System.Drawing.Point(104, $Y)
-        $t.Width = 304
+        $t.Width = 344
         $script:FeldLabel = $l
         return $t
     }
@@ -718,22 +718,25 @@ function Show-BeginnFenster([datetime]$Tag) {
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Location = New-Object System.Drawing.Point(12, 210)
-    $grid.Size = New-Object System.Drawing.Size(396, 130)
+    $grid.Size = New-Object System.Drawing.Size(436, 130)
     $grid.AllowUserToAddRows = $true
     $grid.AllowUserToDeleteRows = $true
     $grid.AllowUserToResizeRows = $false
     $grid.RowHeadersWidth = 28
-    $grid.AutoSizeColumnsMode = 'Fill'
+    $grid.AutoSizeColumnsMode = 'None'
+    $grid.AllowUserToResizeColumns = $false
     $grid.ColumnHeadersHeightSizeMode = 'AutoSize'
     $grid.BackgroundColor = [System.Drawing.SystemColors]::Window
     [void]$grid.Columns.Add('Nummer', 'Auftragsnr.')
     [void]$grid.Columns.Add('Bezeichnung', 'Bezeichnung')
     [void]$grid.Columns.Add('Anteil', 'Anteil')
     [void]$grid.Columns.Add('Stunden', 'Stunden')
-    $grid.Columns[0].FillWeight = 28
-    $grid.Columns[1].FillWeight = 40
-    $grid.Columns[2].FillWeight = 16
-    $grid.Columns[3].FillWeight = 16
+    # Feste Spaltenbreiten (Pixel). Zusammen mit Zeilenkopf (28) und Bildlaufleiste passt alles ohne waagerechtes Scrollen.
+    $grid.Columns[0].Width = 100   # Auftragsnr.  z. B. AB002500473
+    $grid.Columns[1].Width = 170   # Bezeichnung
+    $grid.Columns[2].Width = 55    # Anteil       z. B. 2:30 / 40%
+    $grid.Columns[3].Width = 62    # Stunden      z. B. 12,50
+    foreach ($spalte in $grid.Columns) { $spalte.SortMode = 'NotSortable' }
     $grid.Columns[3].ReadOnly = $true
     $grid.Columns[3].DefaultCellStyle.BackColor = [System.Drawing.SystemColors]::Control
     $grid.Columns[3].DefaultCellStyle.Alignment = 'MiddleRight'
