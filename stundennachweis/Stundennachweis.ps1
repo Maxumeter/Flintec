@@ -48,6 +48,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$SkriptPfad = $PSCommandPath
 $Inv = [Globalization.CultureInfo]::InvariantCulture
 $DeKultur = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
 
@@ -658,276 +659,371 @@ function Set-Kopfdaten($Mappe, [string]$Personalnummer, [string]$Name) {
     return $geaendert
 }
 
-function Show-BeginnFenster([datetime]$Tag) {
-    # Kleines Fenster oben rechts. Gibt die eingetippte Uhrzeit zurueck oder $null.
-    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-    [System.Windows.Forms.Application]::EnableVisualStyles()
-
-    $vorher = Get-TagesZeiten $Tag (Get-Stempel)
-    $vorschlag = if ($vorher -and $vorher.Beginn) { $vorher.Beginn } else { Get-Minutengenau (Get-Date) }
-
-    $f = New-Object System.Windows.Forms.Form
-    $f.Text = 'Stundennachweis'
-    $f.FormBorderStyle = 'FixedSingle'
-    $f.MaximizeBox = $false; $f.MinimizeBox = $true   # minimieren erlaubt
-    $f.TopMost = $true
-    $f.ShowInTaskbar = $true
-    $f.StartPosition = 'Manual'
-    $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $f.ClientSize = New-Object System.Drawing.Size(460, 352)
-
-    $lbl = New-Object System.Windows.Forms.Label
-    $lbl.Text = 'Arbeitsbeginn ' + $Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
-    $lbl.Location = New-Object System.Drawing.Point(12, 12)
-    $lbl.AutoSize = $true
-
-    $tb = New-Object System.Windows.Forms.TextBox
-    $tb.Text = Format-Zeit $vorschlag
-    $tb.Location = New-Object System.Drawing.Point(12, 46)
-    $tb.Width = 70
-    $tb.TextAlign = 'Center'
-
-    # Gesamtstunden des Tages bis jetzt (Beginn bis aktuelle Uhrzeit, Pause abgezogen)
-    $lblGesamt = New-Object System.Windows.Forms.Label
-    $lblGesamt.Location = New-Object System.Drawing.Point(240, 12)
-    $lblGesamt.Size = New-Object System.Drawing.Size(208, 22)
-    $lblGesamt.TextAlign = 'TopRight'
-    $lblGesamt.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-    $tip = New-Object System.Windows.Forms.ToolTip
-    $tip.SetToolTip($lblGesamt, 'Arbeitszeit heute von Beginn bis jetzt, Pause bereits abgezogen')
-    $lblWoche = New-Object System.Windows.Forms.Label
-    $lblWoche.Location = New-Object System.Drawing.Point(240, 84)
-    $lblWoche.Size = New-Object System.Drawing.Size(208, 22)
-    $lblWoche.TextAlign = 'TopRight'
-    $lblWoche.Font = $lblGesamt.Font
-    $tip.SetToolTip($lblWoche, 'Gesamtstunden dieser Woche (Mo bis heute) laut Stundennachweis plus die Stunden von heute bis jetzt')
-    $wocheBisGestern = Get-WochenstundenBisGestern
-
-    $zeigeGesamt = {
-        try { $bz = ConvertTo-Zeitspanne $tb.Text } catch { $bz = $null }
-        $std = 0.0
-        if ($null -ne $bz) {
-            $anw = (Get-Minutengenau (Get-Date)) - $bz
-            if ($anw.TotalMinutes -gt 0) {
-                $arbeit = $anw - (Get-PauseFuer $anw)
-                if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
-            }
-            $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
-        } else {
-            $lblGesamt.Text = 'Heute: -'
-        }
-        $woche = $wocheBisGestern + [math]::Round($std, 2)
-        $lblWoche.Text = 'Woche: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($woche))), $woche.ToString('0.00', $DeKultur)
-
-        # Stunden pro Projekt in der Tabelle (Spalte "Stunden")
-        if (-not $grid) { return }
-        $verteilung = @(Get-Verteilung ([math]::Round($std, 2)) (& $leseGrid) -Still)
-        $i = 0
-        foreach ($zeile in $grid.Rows) {
-            if ($zeile.IsNewRow) { continue }
-            if (-not ([string]$zeile.Cells[0].Value).Trim()) { $zeile.Cells[3].Value = ''; continue }
-            if ($i -lt $verteilung.Count) { $zeile.Cells[3].Value = $verteilung[$i].Stunden.ToString('0.00', $DeKultur) }
-            $i++
-        }
+function Start-Hintergrundsync {
+    # Uebertraegt in einem eigenen, unsichtbaren Prozess in die Excel-Datei,
+    # damit das Fenster dabei nicht haengt.
+    try {
+        $ps = Join-Path $PSHOME 'powershell.exe'
+        $argumente = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Aktion Sync' -f $SkriptPfad
+        Start-Process -FilePath $ps -ArgumentList $argumente -WindowStyle Hidden | Out-Null
+    } catch {
+        Write-Protokoll "FEHLER beim Starten der Uebertragung: $($_.Exception.Message)"
     }
-    $uhr = New-Object System.Windows.Forms.Timer
-    $uhr.Interval = 15000
-    $uhr.Add_Tick({ & $zeigeGesamt })
-
-    $ok = New-Object System.Windows.Forms.Button
-    $ok.Text = 'Eintragen'
-    $ok.Location = New-Object System.Drawing.Point(92, 44)
-    $ok.Size = New-Object System.Drawing.Size(100, 30)
-
-    $spaeter = New-Object System.Windows.Forms.Button
-    $spaeter.Text = 'Sp' + [char]0x00E4 + 'ter'
-    $spaeter.Location = New-Object System.Drawing.Point(198, 44)
-    $spaeter.Size = New-Object System.Drawing.Size(90, 30)
-    $spaeter.DialogResult = 'Cancel'
-
-    $sekunden = 30
-    if ($Einst.FensterSekunden) { $sekunden = [int]$Einst.FensterSekunden }
-
-    $cb = New-Object System.Windows.Forms.CheckBox
-    $cb.Text = ('Automatisch schlie' + [char]0x00DF + 'en nach {0} s') -f $sekunden
-    $cb.Location = New-Object System.Drawing.Point(12, 84)
-    $cb.AutoSize = $true
-    $fe = Get-FensterEinst
-    $cb.Checked = $fe.AutomatischSchliessen
-
-    # Eingabefelder, die sich das Fenster merkt
-    $felder = @()
-    $beschriftungen = @()
-    function New-Feld([string]$Text, [int]$Y, [string]$Wert) {
-        $l = New-Object System.Windows.Forms.Label
-        $l.Text = $Text
-        $l.Location = New-Object System.Drawing.Point(12, ($Y + 3))
-        $l.AutoSize = $true
-        $t = New-Object System.Windows.Forms.TextBox
-        $t.Text = $Wert
-        $t.Location = New-Object System.Drawing.Point(104, $Y)
-        $t.Width = 344
-        $script:FeldLabel = $l
-        return $t
-    }
-    $tbPnr  = New-Feld 'Personalnr.:' 118 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
-    $tbName = New-Feld 'Name:'        150 $fe.Name;           $beschriftungen += $script:FeldLabel
-    $felder = @($tbPnr, $tbName)
-
-    # Projekte: Tabelle mit Auftragsnr., Bezeichnung und Anteil
-    $lblPj = New-Object System.Windows.Forms.Label
-    $lblPj.Text = 'Projekte  (Anteil: 2:30 / 2,5 / 40%  -  leer = Rest)'
-    $lblPj.Location = New-Object System.Drawing.Point(12, 186)
-    $lblPj.AutoSize = $true
-    $beschriftungen += $lblPj
-
-    $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point(12, 210)
-    $grid.Size = New-Object System.Drawing.Size(436, 130)
-    $grid.AllowUserToAddRows = $true
-    $grid.AllowUserToDeleteRows = $true
-    $grid.AllowUserToResizeRows = $false
-    $grid.RowHeadersWidth = 28
-    $grid.AutoSizeColumnsMode = 'None'
-    $grid.AllowUserToResizeColumns = $false
-    $grid.ColumnHeadersHeightSizeMode = 'AutoSize'
-    $grid.BackgroundColor = [System.Drawing.SystemColors]::Window
-    [void]$grid.Columns.Add('Nummer', 'Auftragsnr.')
-    [void]$grid.Columns.Add('Bezeichnung', 'Bezeichnung')
-    [void]$grid.Columns.Add('Anteil', 'Anteil')
-    [void]$grid.Columns.Add('Stunden', 'Stunden')
-    # Feste Spaltenbreiten (Pixel). Zusammen mit Zeilenkopf (28) und Bildlaufleiste passt alles ohne waagerechtes Scrollen.
-    $grid.Columns[0].Width = 100   # Auftragsnr.  z. B. AB002500473
-    $grid.Columns[1].Width = 170   # Bezeichnung
-    $grid.Columns[2].Width = 55    # Anteil       z. B. 2:30 / 40%
-    $grid.Columns[3].Width = 62    # Stunden      z. B. 12,50
-    foreach ($spalte in $grid.Columns) { $spalte.SortMode = 'NotSortable' }
-    $grid.Columns[3].ReadOnly = $true
-    $grid.Columns[3].DefaultCellStyle.BackColor = [System.Drawing.SystemColors]::Control
-    $grid.Columns[3].DefaultCellStyle.Alignment = 'MiddleRight'
-    foreach ($pj in (Get-Projekte)) { [void]$grid.Rows.Add($pj.Nummer, $pj.Bezeichnung, $pj.Anteil) }
-
-    $leseGrid = {
-        $liste = @()
-        foreach ($zeile in $grid.Rows) {
-            if ($zeile.IsNewRow) { continue }
-            $nr = ([string]$zeile.Cells[0].Value).Trim()
-            if (-not $nr) { continue }
-            $liste += [ordered]@{ Nummer = $nr; Bezeichnung = ([string]$zeile.Cells[1].Value).Trim(); Anteil = ([string]$zeile.Cells[2].Value).Trim() }
-        }
-        , $liste
-    }
-
-    # Sofort merken, sobald sich etwas aendert (bleibt auch nach Neustart erhalten)
-    $merken = {
-        $e2 = Get-FensterEinst
-        $e2.Personalnummer = $tbPnr.Text.Trim()
-        $e2.Name = $tbName.Text.Trim()
-        $e2.Projekte = & $leseGrid
-        $e2.AutomatischSchliessen = $cb.Checked
-        Save-FensterEinst $e2
-    }
-
-    # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
-    # Bei 0 wird die angezeigte Uhrzeit uebernommen.
-    $script:Rest = $sekunden
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 1000
-    $timer.Add_Tick({
-        $script:Rest--
-        if ($script:Rest -le 0) { $timer.Stop(); $ok.PerformClick() }
-        else { $ok.Text = 'Eintragen ({0})' -f $script:Rest }
-    })
-    $stoppen = {
-        $timer.Stop()
-        $ok.Text = 'Eintragen'
-    }
-    $cb.Add_CheckedChanged({
-        $e2 = Get-FensterEinst; $e2.AutomatischSchliessen = $cb.Checked; Save-FensterEinst $e2
-        if ($cb.Checked) { $script:Rest = $sekunden; $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
-        else { & $stoppen }
-    })
-    $tb.Add_KeyDown({ & $stoppen })
-    $tb.Add_TextChanged({ & $zeigeGesamt })
-    $tb.Add_MouseDown({ & $stoppen })
-    foreach ($feld in $felder) {
-        $feld.Add_KeyDown({ & $stoppen })
-        $feld.Add_MouseDown({ & $stoppen })
-        $feld.Add_TextChanged({ & $merken })
-    }
-    $grid.Add_CellBeginEdit({ & $stoppen })
-    $grid.Add_MouseDown({ & $stoppen })
-    $grid.Add_CellEndEdit({
-        & $merken
-        $zelle = $grid.Rows[$_.RowIndex].Cells[2]
-        try { [void](ConvertTo-Anteil ([string]$zelle.Value)); $zelle.Style.BackColor = [System.Drawing.Color]::Empty }
-        catch { $zelle.Style.BackColor = [System.Drawing.Color]::MistyRose }
-        & $zeigeGesamt
-    })
-    $grid.Add_UserDeletedRow({ & $merken; & $zeigeGesamt })
-
-    $script:FensterZeit = $null
-    $ok.Add_Click({
-        foreach ($zeile in $grid.Rows) {
-            if ($zeile.IsNewRow) { continue }
-            try { [void](ConvertTo-Anteil ([string]$zeile.Cells[2].Value)) }
-            catch { $zeile.Cells[2].Style.BackColor = [System.Drawing.Color]::MistyRose; $grid.CurrentCell = $zeile.Cells[2]; return }
-        }
-        try {
-            $script:FensterZeit = ConvertTo-Zeitspanne $tb.Text
-            $f.DialogResult = 'OK'
-            $f.Close()
-        } catch {
-            $tb.BackColor = [System.Drawing.Color]::MistyRose
-            $tb.SelectAll(); $tb.Focus()
-        }
-    })
-
-    $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
-    # Beim Schliessen ebenfalls merken (auch bei "Spaeter")
-    $f.Add_FormClosing({ & $merken })
-    $f.AcceptButton = $ok
-    $f.CancelButton = $spaeter
-
-    $bereich = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
-    $f.Add_Shown({
-        $f.Activate(); $tb.Focus(); $tb.SelectAll()
-        & $zeigeGesamt; $uhr.Start()
-        if ($cb.Checked) { $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
-    })
-
-    $ergebnis = $f.ShowDialog()
-    $timer.Stop(); $timer.Dispose()
-    $uhr.Stop(); $uhr.Dispose()
-    $f.Dispose()
-    if ($ergebnis -eq [System.Windows.Forms.DialogResult]::OK -and $null -ne $script:FensterZeit) {
-        return $Tag.Date.Add($script:FensterZeit)
-    }
-    return $null
 }
 
-function Invoke-BeginnAbfrage([bool]$Immer) {
-    $heute = (Get-Date).Date
-    if (-not $Immer) {
-        if (Test-BeginnErfasst $heute) { return }
-        if ($Einst.WochenendeUeberspringen -and ($heute.DayOfWeek -eq 'Saturday' -or $heute.DayOfWeek -eq 'Sunday')) { return }
-    }
-    # Nur ein Fenster gleichzeitig
-    $fm = New-Object System.Threading.Mutex($false, 'Local\StundennachweisFenster')
+function Start-App([string]$Modus) {
+    # Laeuft den ganzen Tag im Hintergrund (Symbol im Infobereich neben der Uhr).
+    # $Modus 'Pruefen': Fenster nur zeigen, wenn heute noch kein Arbeitsbeginn erfasst ist.
+    # $Modus 'Zeigen' : Fenster immer zeigen.
+    $evZeigen  = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, 'Local\StundennachweisZeigen')
+    $evPruefen = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, 'Local\StundennachweisPruefen')
+    $appMutex = New-Object System.Threading.Mutex($false, 'Local\StundennachweisApp')
     $hat = $false
+    try { $hat = $appMutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $hat = $true }
+    if (-not $hat) {
+        # Laeuft schon - der laufenden App Bescheid geben und beenden.
+        if ($Modus -eq 'Zeigen') { [void]$evZeigen.Set() } else { [void]$evPruefen.Set() }
+        return
+    }
+
     try {
-        try { $hat = $fm.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $hat = $true }
-        if (-not $hat) { return }
-        if (-not $Immer -and (Test-BeginnErfasst $heute)) { return }
-        $zeit = Show-BeginnFenster $heute
-        if ($zeit) {
-            Add-Stempel 'Beginn' $zeit
-            Write-Protokoll ('Arbeitsbeginn {0} erfasst.' -f $zeit.ToString('HH:mm'))
+        Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+        [System.Windows.Forms.Application]::EnableVisualStyles()
+        Remove-AlteStempel
+        Start-Hintergrundsync   # liegengebliebene Tage nachtragen
+
+        $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
+        $symbol = [System.Drawing.SystemIcons]::Information
+        if (Test-Path -LiteralPath $exe) { try { $symbol = [System.Drawing.Icon]::ExtractAssociatedIcon($exe) } catch { } }
+
+        $tray = New-Object System.Windows.Forms.NotifyIcon
+        $tray.Icon = $symbol
+        $tray.Text = 'Stundennachweis'
+
+        $script:Tag = (Get-Date).Date
+        $script:Beenden = $false
+        $script:HinweisGezeigt = $false
+
+        $f = New-Object System.Windows.Forms.Form
+        $f.Text = 'Stundennachweis'
+        $f.FormBorderStyle = 'FixedSingle'
+        $f.MaximizeBox = $false; $f.MinimizeBox = $true   # minimieren erlaubt
+        $f.TopMost = $true
+        $f.ShowInTaskbar = $true
+        $f.StartPosition = 'Manual'
+        $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+        $f.ClientSize = New-Object System.Drawing.Size(460, 352)
+
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.Location = New-Object System.Drawing.Point(12, 12)
+        $lbl.AutoSize = $true
+
+        $tb = New-Object System.Windows.Forms.TextBox
+        $tb.Location = New-Object System.Drawing.Point(12, 46)
+        $tb.Width = 70
+        $tb.TextAlign = 'Center'
+
+        # Gesamtstunden des Tages bis jetzt (Beginn bis aktuelle Uhrzeit, Pause abgezogen)
+        $lblGesamt = New-Object System.Windows.Forms.Label
+        $lblGesamt.Location = New-Object System.Drawing.Point(240, 12)
+        $lblGesamt.Size = New-Object System.Drawing.Size(208, 22)
+        $lblGesamt.TextAlign = 'TopRight'
+        $lblGesamt.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+        $tip = New-Object System.Windows.Forms.ToolTip
+        $tip.SetToolTip($lblGesamt, 'Arbeitszeit heute von Beginn bis jetzt, Pause bereits abgezogen')
+        $lblWoche = New-Object System.Windows.Forms.Label
+        $lblWoche.Location = New-Object System.Drawing.Point(240, 84)
+        $lblWoche.Size = New-Object System.Drawing.Size(208, 22)
+        $lblWoche.TextAlign = 'TopRight'
+        $lblWoche.Font = $lblGesamt.Font
+        $tip.SetToolTip($lblWoche, 'Gesamtstunden dieser Woche (Mo bis heute) laut Stundennachweis plus die Stunden von heute bis jetzt')
+
+        $zeigeGesamt = {
+            try { $bz = ConvertTo-Zeitspanne $tb.Text } catch { $bz = $null }
+            $std = 0.0
+            if ($null -ne $bz) {
+                $anw = (Get-Minutengenau (Get-Date)) - $bz
+                if ($anw.TotalMinutes -gt 0) {
+                    $arbeit = $anw - (Get-PauseFuer $anw)
+                    if ($arbeit.TotalMinutes -gt 0) { $std = $arbeit.TotalHours }
+                }
+                $lblGesamt.Text = 'Heute: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($std))), $std.ToString('0.00', $DeKultur)
+            } else {
+                $lblGesamt.Text = 'Heute: -'
+            }
+            $woche = (Get-WochenstundenBisGestern) + [math]::Round($std, 2)
+            $lblWoche.Text = 'Woche: {0} h ({1})' -f (Format-Zeit ([TimeSpan]::FromHours($woche))), $woche.ToString('0.00', $DeKultur)
+            $hinweis = 'Stundennachweis - Heute {0} h, Woche {1} h' -f (Format-Zeit ([TimeSpan]::FromHours($std))), (Format-Zeit ([TimeSpan]::FromHours($woche)))
+            if ($hinweis.Length -gt 63) { $hinweis = $hinweis.Substring(0, 63) }   # Windows erlaubt hoechstens 63 Zeichen
+            $tray.Text = $hinweis
+
+            # Stunden pro Projekt in der Tabelle (Spalte "Stunden")
+            if (-not $grid) { return }
+            $verteilung = @(Get-Verteilung ([math]::Round($std, 2)) (& $leseGrid) -Still)
+            $i = 0
+            foreach ($zeile in $grid.Rows) {
+                if ($zeile.IsNewRow) { continue }
+                if (-not ([string]$zeile.Cells[0].Value).Trim()) { $zeile.Cells[3].Value = ''; continue }
+                if ($i -lt $verteilung.Count) { $zeile.Cells[3].Value = $verteilung[$i].Stunden.ToString('0.00', $DeKultur) }
+                $i++
+            }
         }
+        $uhr = New-Object System.Windows.Forms.Timer
+        $uhr.Interval = 15000
+        $uhr.Add_Tick({
+            # Neuer Tag (PC lief ueber Nacht)? Dann Fenster auf heute umstellen.
+            if ((Get-Date).Date -ne $script:Tag -and -not $f.Visible) { & $ladeTag }
+            & $zeigeGesamt
+        })
+
+        $ok = New-Object System.Windows.Forms.Button
+        $ok.Text = 'Eintragen'
+        $ok.Location = New-Object System.Drawing.Point(92, 44)
+        $ok.Size = New-Object System.Drawing.Size(100, 30)
+
+        $spaeter = New-Object System.Windows.Forms.Button
+        $spaeter.Text = 'Sp' + [char]0x00E4 + 'ter'
+        $spaeter.Location = New-Object System.Drawing.Point(198, 44)
+        $spaeter.Size = New-Object System.Drawing.Size(90, 30)
+
+        $sekunden = 30
+        if ($Einst.FensterSekunden) { $sekunden = [int]$Einst.FensterSekunden }
+
+        $cb = New-Object System.Windows.Forms.CheckBox
+        $cb.Text = ('Automatisch schlie' + [char]0x00DF + 'en nach {0} s') -f $sekunden
+        $cb.Location = New-Object System.Drawing.Point(12, 84)
+        $cb.AutoSize = $true
+        $fe = Get-FensterEinst
+        $cb.Checked = $fe.AutomatischSchliessen
+
+        # Eingabefelder, die sich das Fenster merkt
+        $felder = @()
+        $beschriftungen = @()
+        function New-Feld([string]$Text, [int]$Y, [string]$Wert) {
+            $l = New-Object System.Windows.Forms.Label
+            $l.Text = $Text
+            $l.Location = New-Object System.Drawing.Point(12, ($Y + 3))
+            $l.AutoSize = $true
+            $t = New-Object System.Windows.Forms.TextBox
+            $t.Text = $Wert
+            $t.Location = New-Object System.Drawing.Point(104, $Y)
+            $t.Width = 344
+            $script:FeldLabel = $l
+            return $t
+        }
+        $tbPnr  = New-Feld 'Personalnr.:' 118 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
+        $tbName = New-Feld 'Name:'        150 $fe.Name;           $beschriftungen += $script:FeldLabel
+        $felder = @($tbPnr, $tbName)
+
+        # Projekte: Tabelle mit Auftragsnr., Bezeichnung und Anteil
+        $lblPj = New-Object System.Windows.Forms.Label
+        $lblPj.Text = 'Projekte  (Anteil: 2:30 / 2,5 / 40%  -  leer = Rest)'
+        $lblPj.Location = New-Object System.Drawing.Point(12, 186)
+        $lblPj.AutoSize = $true
+        $beschriftungen += $lblPj
+
+        $grid = New-Object System.Windows.Forms.DataGridView
+        $grid.Location = New-Object System.Drawing.Point(12, 210)
+        $grid.Size = New-Object System.Drawing.Size(436, 130)
+        $grid.AllowUserToAddRows = $true
+        $grid.AllowUserToDeleteRows = $true
+        $grid.AllowUserToResizeRows = $false
+        $grid.RowHeadersWidth = 28
+        $grid.AutoSizeColumnsMode = 'None'
+        $grid.AllowUserToResizeColumns = $false
+        $grid.ColumnHeadersHeightSizeMode = 'AutoSize'
+        $grid.BackgroundColor = [System.Drawing.SystemColors]::Window
+        [void]$grid.Columns.Add('Nummer', 'Auftragsnr.')
+        [void]$grid.Columns.Add('Bezeichnung', 'Bezeichnung')
+        [void]$grid.Columns.Add('Anteil', 'Anteil')
+        [void]$grid.Columns.Add('Stunden', 'Stunden')
+        # Feste Spaltenbreiten (Pixel). Zusammen mit Zeilenkopf (28) und Bildlaufleiste passt alles ohne waagerechtes Scrollen.
+        $grid.Columns[0].Width = 100   # Auftragsnr.  z. B. AB002500473
+        $grid.Columns[1].Width = 170   # Bezeichnung
+        $grid.Columns[2].Width = 55    # Anteil       z. B. 2:30 / 40%
+        $grid.Columns[3].Width = 62    # Stunden      z. B. 12,50
+        foreach ($spalte in $grid.Columns) { $spalte.SortMode = 'NotSortable' }
+        $grid.Columns[3].ReadOnly = $true
+        $grid.Columns[3].DefaultCellStyle.BackColor = [System.Drawing.SystemColors]::Control
+        $grid.Columns[3].DefaultCellStyle.Alignment = 'MiddleRight'
+        foreach ($pj in (Get-Projekte)) { [void]$grid.Rows.Add($pj.Nummer, $pj.Bezeichnung, $pj.Anteil) }
+
+        $leseGrid = {
+            $liste = @()
+            foreach ($zeile in $grid.Rows) {
+                if ($zeile.IsNewRow) { continue }
+                $nr = ([string]$zeile.Cells[0].Value).Trim()
+                if (-not $nr) { continue }
+                $liste += [ordered]@{ Nummer = $nr; Bezeichnung = ([string]$zeile.Cells[1].Value).Trim(); Anteil = ([string]$zeile.Cells[2].Value).Trim() }
+            }
+            , $liste
+        }
+
+        # Sofort merken, sobald sich etwas aendert (bleibt auch nach Neustart erhalten)
+        $merken = {
+            $e2 = Get-FensterEinst
+            $e2.Personalnummer = $tbPnr.Text.Trim()
+            $e2.Name = $tbName.Text.Trim()
+            $e2.Projekte = & $leseGrid
+            $e2.AutomatischSchliessen = $cb.Checked
+            Save-FensterEinst $e2
+        }
+
+        # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
+        # Bei 0 wird die angezeigte Uhrzeit uebernommen.
+        $script:Rest = $sekunden
+        $timer = New-Object System.Windows.Forms.Timer
+        $timer.Interval = 1000
+        $timer.Add_Tick({
+            $script:Rest--
+            if ($script:Rest -le 0) { $timer.Stop(); $ok.PerformClick() }
+            else { $ok.Text = 'Eintragen ({0})' -f $script:Rest }
+        })
+        $stoppen = {
+            $timer.Stop()
+            $ok.Text = 'Eintragen'
+        }
+        $cb.Add_CheckedChanged({
+            $e2 = Get-FensterEinst; $e2.AutomatischSchliessen = $cb.Checked; Save-FensterEinst $e2
+            if ($cb.Checked) { $script:Rest = $sekunden; $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start() }
+            else { & $stoppen }
+        })
+        $tb.Add_KeyDown({ & $stoppen })
+        $tb.Add_TextChanged({ & $zeigeGesamt })
+        $tb.Add_MouseDown({ & $stoppen })
+        foreach ($feld in $felder) {
+            $feld.Add_KeyDown({ & $stoppen })
+            $feld.Add_MouseDown({ & $stoppen })
+            $feld.Add_TextChanged({ & $merken })
+        }
+        $grid.Add_CellBeginEdit({ & $stoppen })
+        $grid.Add_MouseDown({ & $stoppen })
+        $grid.Add_CellEndEdit({
+            & $merken
+            $zelle = $grid.Rows[$_.RowIndex].Cells[2]
+            try { [void](ConvertTo-Anteil ([string]$zelle.Value)); $zelle.Style.BackColor = [System.Drawing.Color]::Empty }
+            catch { $zelle.Style.BackColor = [System.Drawing.Color]::MistyRose }
+            & $zeigeGesamt
+        })
+        $grid.Add_UserDeletedRow({ & $merken; & $zeigeGesamt })
+
+        $ok.Add_Click({
+            foreach ($zeile in $grid.Rows) {
+                if ($zeile.IsNewRow) { continue }
+                try { [void](ConvertTo-Anteil ([string]$zeile.Cells[2].Value)) }
+                catch { $zeile.Cells[2].Style.BackColor = [System.Drawing.Color]::MistyRose; $grid.CurrentCell = $zeile.Cells[2]; return }
+            }
+            try { $zeit = ConvertTo-Zeitspanne $tb.Text } catch {
+                $tb.BackColor = [System.Drawing.Color]::MistyRose
+                $tb.SelectAll(); $tb.Focus()
+                return
+            }
+            $tb.BackColor = [System.Drawing.SystemColors]::Window
+            $beginnZeit = $script:Tag.Add($zeit)
+            Add-Stempel 'Beginn' $beginnZeit
+            Write-Protokoll ('Arbeitsbeginn {0} erfasst.' -f $beginnZeit.ToString('HH:mm'))
+            & $merken
+            Start-Hintergrundsync
+            & $zeigeGesamt
+            & $verstecken
+        })
+        $spaeter.Add_Click({ & $verstecken })
+
+
+        $f.Icon = $symbol
+        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
+        $f.AcceptButton = $ok
+        $f.CancelButton = $spaeter
+
+        $ladeTag = {
+            $script:Tag = (Get-Date).Date
+            $lbl.Text = 'Arbeitsbeginn ' + $script:Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
+            $vorher = Get-TagesZeiten $script:Tag (Get-Stempel)
+            if ($vorher -and $vorher.Beginn) { $tb.Text = Format-Zeit $vorher.Beginn }
+            else { $tb.Text = Format-Zeit (Get-Minutengenau (Get-Date)) }
+            $tb.BackColor = [System.Drawing.SystemColors]::Window
+        }
+        $brauchtBeginn = {
+            $h = (Get-Date).Date
+            $wochenende = ($h.DayOfWeek -eq 'Saturday' -or $h.DayOfWeek -eq 'Sunday')
+            (-not (Test-BeginnErfasst $h)) -and -not ($Einst.WochenendeUeberspringen -and $wochenende)
+        }
+        $zeigen = {
+            if (-not $f.Visible) {
+                # Neuer Tag oder noch kein Beginn: Vorschlag auf die aktuelle Uhrzeit setzen
+                if ((Get-Date).Date -ne $script:Tag -or (& $brauchtBeginn)) { & $ladeTag }
+            }
+            $bereich = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+            $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
+            $f.WindowState = 'Normal'
+            $f.Show()
+            $f.Activate()
+            $tb.Focus(); $tb.SelectAll()
+            & $zeigeGesamt
+            if ($cb.Checked -and (& $brauchtBeginn)) {
+                $script:Rest = $sekunden; $ok.Text = 'Eintragen ({0})' -f $script:Rest; $timer.Start()
+            }
+        }
+        $verstecken = {
+            & $stoppen
+            & $merken
+            $f.Hide()
+            if (-not $script:HinweisGezeigt) {
+                $script:HinweisGezeigt = $true
+                $tray.ShowBalloonTip(4000, 'Stundennachweis',
+                    ('L' + [char]0x00E4 + 'uft im Hintergrund weiter. Klick auf das Symbol ' + [char]0x00F6 + 'ffnet das Fenster wieder.'), 'Info')
+            }
+        }
+
+        # Minimieren und X schicken das Fenster in den Hintergrund (Infobereich)
+        $f.Add_Resize({ if ($f.WindowState -eq 'Minimized') { & $verstecken } })
+        $f.Add_FormClosing({
+            if ($_.CloseReason -eq 'UserClosing' -and -not $script:Beenden) { $_.Cancel = $true; & $verstecken }
+            else { & $merken }
+        })
+
+        # Menue am Symbol
+        $menu = New-Object System.Windows.Forms.ContextMenuStrip
+        [void]$menu.Items.Add(([char]0x00D6 + 'ffnen'), $null, { & $zeigen })
+        [void]$menu.Items.Add(('Excel-Datei ' + [char]0x00F6 + 'ffnen'), $null, {
+            try { Start-Process -FilePath (Get-DateiFuerJahr (Get-Date).Year) } catch { Write-Protokoll "FEHLER: $($_.Exception.Message)" }
+        })
+        [void]$menu.Items.Add('Protokoll anzeigen', $null, { try { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$LogDatei`"" } catch { } })
+        [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+        [void]$menu.Items.Add('Beenden', $null, {
+            $script:Beenden = $true
+            & $merken
+            $tray.Visible = $false
+            [System.Windows.Forms.Application]::Exit()
+        })
+        $tray.ContextMenuStrip = $menu
+        $tray.Add_MouseClick({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { & $zeigen } })
+        $tray.Visible = $true
+
+        # Nachrichten von weiteren Starts (Entsperren, Doppelklick auf die EXE)
+        $post = New-Object System.Windows.Forms.Timer
+        $post.Interval = 500
+        $post.Add_Tick({
+            if ($evZeigen.WaitOne(0)) { & $zeigen }
+            if ($evPruefen.WaitOne(0) -and (& $brauchtBeginn)) { & $zeigen }
+        })
+        $post.Start()
+
+        & $ladeTag
+        & $zeigeGesamt
+        $uhr.Start()
+        if ($Modus -eq 'Zeigen' -or (& $brauchtBeginn)) { & $zeigen }
+
+        [System.Windows.Forms.Application]::Run()
+
+        $post.Stop(); $uhr.Stop(); $timer.Stop()
+        $tray.Visible = $false
+        $tray.Dispose()
+        $f.Dispose()
     } finally {
-        if ($hat) { $fm.ReleaseMutex() }
-        $fm.Dispose()
+        $appMutex.ReleaseMutex()
+        $appMutex.Dispose()
+        $evZeigen.Dispose(); $evPruefen.Dispose()
     }
 }
 
@@ -988,16 +1084,14 @@ try {
     if ($OhneExcel) { return }
 
     $Einst = Get-Einstellungen
-    # Fenster fuer den Arbeitsbeginn (ausserhalb der Sperre, es kann ja eine Weile offen sein)
-    if ($Aktion -eq 'Kommen') { Invoke-BeginnAbfrage $false }
-    if ($Aktion -eq 'Beginn') { Invoke-BeginnAbfrage $true }
+    # Die App laeuft den ganzen Tag - ausserhalb der Sperre fuer die Excel-Uebertragung.
+    if ($Aktion -eq 'Kommen') { Start-App 'Pruefen'; return }
+    if ($Aktion -eq 'Beginn') { Start-App 'Zeigen'; return }
 
     try { $hatMutex = $mutex.WaitOne([TimeSpan]::FromMinutes(5)) } catch [System.Threading.AbandonedMutexException] { $hatMutex = $true }
     if (-not $hatMutex) { Write-Protokoll 'Ein anderer Lauf ist noch aktiv - abgebrochen.'; return }
 
     switch ($Aktion) {
-        'Kommen'    { Remove-AlteStempel; Invoke-Sync }
-        'Beginn'    { Invoke-Sync }
         'Gehen'     { Invoke-Sync }
         'Herunterfahren' { Invoke-Sync }
         'Sync'      { Invoke-Sync }

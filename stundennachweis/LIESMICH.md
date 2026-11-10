@@ -7,7 +7,8 @@ Trägt jeden Arbeitstag **Arbeitsbeginn, Arbeitsende, Pause und Projektstunden**
 
 | Wann                         | Was passiert                                                         |
 |---|---|
-| Erstes Anmelden / Entsperren am Tag | Kleines Fenster **oben rechts**: Arbeitsbeginn eintippen (z. B. `7:45` oder `745`), Enter. |
+| Anmelden | `Stundennachweis.exe` startet und läuft den ganzen Tag im Hintergrund (Symbol neben der Uhr). |
+| Erstes Anmelden / Entsperren am Tag | Fenster **oben rechts**: Arbeitsbeginn eintippen (z. B. `7:45` oder `745`), Enter. |
 | Herunterfahren               | Uhrzeit wird als **Arbeitsende** eingetragen. |
 | PC sperren (Windows-Taste+L) | Nichts. |
 
@@ -28,6 +29,16 @@ Die Werte der Vortage merkt sich das Skript jedes Mal, wenn es in die Excel-Date
 Für die Anzeige muss Excel deshalb nicht geöffnet werden.
 In der ersten Woche nach dem Update fehlen die Tage davor noch.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
+
+### Im Hintergrund (Infobereich neben der Uhr)
+
+- **Minimieren**, das **X** oder „Eintragen“ schicken das Fenster in den Hintergrund. Das Programm läuft dort weiter.
+- Das Symbol mit der Uhr sitzt unten rechts neben der Uhrzeit. Eventuell liegt es hinter dem kleinen Pfeil `^`.
+- Fährst du mit der Maus über das Symbol, siehst du die Stunden von heute und von dieser Woche.
+- **Linksklick** auf das Symbol öffnet das Fenster wieder.
+- **Rechtsklick** öffnet ein Menü: *Öffnen*, *Excel-Datei öffnen*, *Protokoll anzeigen* und *Beenden*.
+- Ein Doppelklick auf `Stundennachweis.exe` oder auf „Stundennachweis“ im Startmenü holt das Fenster ebenfalls nach vorne.
+- Hast du das Programm beendet, startet es beim nächsten Entsperren oder Anmelden wieder.
 
 Unten im Fenster gibt es den Haken **„Automatisch schließen nach 30 s“**. Das Fenster merkt sich die Einstellung.
 Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigte Uhrzeit übernommen und das Fenster schließt sich.
@@ -66,16 +77,14 @@ Beispiel bei 7,53 Stunden Arbeitszeit:
 
 In Spalte A der Projektzeile steht die Auftragsnummer, in Spalte B die Bezeichnung.
 Gibt es zu einer Nummer im Monatsblatt noch keine Zeile, legt das Skript sie in der ersten freien Projektzeile an.
-Änderst du die Verteilung im Laufe des Tages (mit `Beginn.cmd`), wird der heutige Tag neu verteilt.
+Änderst du die Verteilung im Laufe des Tages, wird der heutige Tag beim Herunterfahren neu verteilt.
 Zurückliegende Tage bleiben, wie sie sind.
 
 Alle Angaben im Fenster werden sofort gespeichert und stehen beim nächsten Mal wieder da, auch nach einem Neustart.
 Steht in der Tabelle kein Projekt, gilt die Nummer aus `einstellungen.json`.
 
-Das Fenster lässt sich mit dem Strich oben rechts **minimieren** und über die Taskleiste wieder öffnen.
-
 Ist der Beginn für heute erfasst, erscheint das Fenster nicht mehr. Am Wochenende erscheint es gar nicht.
-Zum Korrigieren öffnest du es mit **`Beginn.cmd`** jederzeit wieder.
+Zum Korrigieren öffnest du es jederzeit über das Symbol neben der Uhr. Einen geänderten Beginn übernimmst du mit „Eintragen“.
 
 Folgende Tage werden **nicht** angefasst:
 
@@ -102,7 +111,8 @@ Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zähl
    Am Ende muss „Test OK“ in Grün erscheinen.
 
 Ab dann läuft alles automatisch. **Wichtig:** Zum Feierabend den PC herunterfahren.
-Hattest du schon die erste Version installiert, `Installieren.cmd` einfach noch einmal ausführen.
+Hattest du schon eine frühere Version installiert, `Installieren.cmd` einfach noch einmal ausführen.
+Die Aufgaben zeigen danach auf `Stundennachweis.exe`. Die alte Datei `Beginn.cmd` wird nicht mehr gebraucht und kann gelöscht werden.
 Die Aufgaben werden dabei aktualisiert, die alte Aufgabe für das Sperren wird entfernt.
 
 ## Nützliches
@@ -130,3 +140,10 @@ Dieser Tag wird danach nicht mehr automatisch überschrieben.
 - Dienstreisen, Homeoffice ohne Firmen-PC usw. bitte von Hand eintragen.
 - Voraussetzungen: Windows mit installiertem Excel und Zugriff auf Laufwerk `S:`.
   Falls die IT PowerShell-Skripte oder geplante Aufgaben sperrt, bricht `Installieren.cmd` mit einer Fehlermeldung ab.
+
+## Zur EXE
+
+`Stundennachweis.exe` ist nur ein kleiner Starter. Er ruft `Stundennachweis.ps1` aus demselben Ordner ohne sichtbares Konsolenfenster auf.
+Lass deshalb alle Dateien zusammen in einem Ordner.
+Den Quelltext der EXE findest du im Ordner `quelle`. Mit `quelle\Erstellen.cmd` lässt sie sich mit dem C#-Compiler, der bei Windows dabei ist, selbst neu bauen.
+Die EXE ist nicht digital signiert. Je nach IT-Richtlinie kann Windows oder der Virenscanner beim ersten Start nachfragen oder sie blockieren.
