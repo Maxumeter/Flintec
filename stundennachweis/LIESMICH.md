@@ -35,7 +35,7 @@ Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder
 - **Minimieren**, das **X** oder „Eintragen“ schicken das Fenster in den Hintergrund. Das Programm läuft dort weiter.
 - Das Symbol mit der Uhr sitzt unten rechts neben der Uhrzeit. Eventuell liegt es hinter dem kleinen Pfeil `^`.
 - Fährst du mit der Maus über das Symbol, siehst du die Stunden von heute und von dieser Woche.
-- **Linksklick** auf das Symbol öffnet das Fenster wieder.
+- **Klick oder Doppelklick** auf das Symbol öffnet das Fenster wieder, ebenso ein Klick auf den Hinweis „Läuft im Hintergrund weiter“.
 - **Rechtsklick** öffnet ein Menü: *Öffnen*, *Excel-Datei öffnen*, *Protokoll anzeigen* und *Beenden*.
 - Ein Doppelklick auf `Stundennachweis.exe` oder auf „Stundennachweis“ im Startmenü holt das Fenster ebenfalls nach vorne.
 - Hast du das Programm beendet, startet es beim nächsten Entsperren oder Anmelden wieder.

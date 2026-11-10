@@ -957,6 +957,7 @@ function Start-App([string]$Modus) {
             $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
             $f.WindowState = 'Normal'
             $f.Show()
+            $f.BringToFront()
             $f.Activate()
             $tb.Focus(); $tb.SelectAll()
             & $zeigeGesamt
@@ -997,7 +998,10 @@ function Start-App([string]$Modus) {
             [System.Windows.Forms.Application]::Exit()
         })
         $tray.ContextMenuStrip = $menu
+        # Einfach- oder Doppelklick (linke Maustaste) auf das Symbol holt das Fenster zurueck
         $tray.Add_MouseClick({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { & $zeigen } })
+        $tray.Add_MouseDoubleClick({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { & $zeigen } })
+        $tray.Add_BalloonTipClicked({ & $zeigen })
         $tray.Visible = $true
 
         # Nachrichten von weiteren Starts (Entsperren, Doppelklick auf die EXE)
