@@ -59,6 +59,7 @@ $StatusDatei  = Join-Path $DatenOrdner 'uebertragen.json'
 $LogDatei     = Join-Path $DatenOrdner 'protokoll.log'
 $FensterDatei = Join-Path $DatenOrdner 'fenster.json'
 $WocheDatei   = Join-Path $DatenOrdner 'woche.json'
+$TageProjekteDatei = Join-Path $DatenOrdner 'projekte-je-tag.json'   # Projektverteilung je Tag (Zwischenspeicher)
 $Z_GESAMT = 32   # Zeile "Gesamtstunden" (Projekte + Urlaub/Feiertag/Krankheit ...)
 
 # Zeilen im Tabellenblatt (siehe 2026_Stundennachweis.xlsx)
@@ -472,42 +473,91 @@ function Get-WochenstundenBisGestern {
 
 # ---------------------------------------------------------------- Ablaeufe
 
+function Get-ProjektSchnappschuesse {
+    $h = @{}
+    try {
+        if (Test-Path -LiteralPath $TageProjekteDatei) {
+            $o = Get-Content -LiteralPath $TageProjekteDatei -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pp in $o.PSObject.Properties) {
+                $h[$pp.Name] = @($pp.Value | ForEach-Object { [pscustomobject]@{ Nummer = [string]$_.Nummer; Bezeichnung = [string]$_.Bezeichnung; Anteil = [string]$_.Anteil } })
+            }
+        }
+    } catch { }
+    return $h
+}
+
+function Save-ProjektSchnappschuss([datetime]$Tag) {
+    # Merkt sich die Projektverteilung des Tages lokal. Ist die Excel-Datei nicht erreichbar,
+    # wird der Tag spaeter mit genau dieser Verteilung nachgetragen - auch wenn die Projekte
+    # im Fenster inzwischen geaendert wurden.
+    $h = Get-ProjektSchnappschuesse
+    $h[$Tag.ToString('yyyy-MM-dd')] = @(Get-Projekte)
+    $grenze = (Get-Date).Date.AddDays(-120).ToString('yyyy-MM-dd')
+    $o = [ordered]@{}
+    foreach ($k in ($h.Keys | Sort-Object)) { if ($k -ge $grenze) { $o[$k] = @($h[$k]) } }
+    try { ($o | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $TageProjekteDatei -Encoding UTF8 } catch { }
+}
+
+function Get-SyncKandidaten($Stempel, $Status) {
+    # Alle Tage, deren Zeiten noch nicht (oder nicht aktuell) in der Excel-Datei stehen.
+    # Es wird weit zurueckgeschaut, damit nichts verloren geht, wenn die Datei laenger nicht erreichbar war.
+    $heute = (Get-Date).Date
+    $tageZurueck = [math]::Max([int]$Einst.TageRueckwirkend, 60)
+    $schnapp = Get-ProjektSchnappschuesse
+    $aktuell = @()
+    if ($Einst.ProjektstundenEintragen) { $aktuell = @(Get-Projekte) }
+    $liste = @()
+    for ($i = $tageZurueck; $i -ge 0; $i--) {
+        $tag = $heute.AddDays(-$i)
+        $key = $tag.ToString('yyyy-MM-dd')
+        if ($Status[$key] -eq 'manuell' -or $Status[$key] -eq 'uebersprungen') { continue }
+        $soll = Get-TagesZeiten $tag $Stempel
+        if (-not $soll) { continue }
+
+        $projekte = $aktuell
+        $hatSchnapp = $schnapp.ContainsKey($key)
+        if ($Einst.ProjektstundenEintragen -and $hatSchnapp) { $projekte = @($schnapp[$key]) }
+        $sig = Get-ProjektSignatur $projekte
+
+        $p = $null
+        if ($soll.Ende -and $soll.Beginn) { $p = Get-PauseFuer ($soll.Ende - $soll.Beginn) }
+        $wert = Get-StatusWert $soll.Beginn $soll.Ende $p
+        # Neu verteilen, wenn sich die Projekte dieses Tages geaendert haben
+        $sigNeu = (($tag -eq $heute -or $hatSchnapp) -and $soll.Beginn -and $soll.Ende -and $Status['sig-' + $key] -ne $sig)
+        if ($Status[$key] -ne $wert -or $sigNeu) {
+            $liste += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key; Projekte = $projekte; Sig = $sig }
+        }
+    }
+    return $liste
+}
+
+function Get-OffeneTage {
+    # Tage vor heute, die wegen nicht erreichbarer Datei noch auf die Uebertragung warten
+    try {
+        $heute = (Get-Date).Date
+        return @(Get-SyncKandidaten (Get-Stempel) (Get-Status) | Where-Object {
+            $_.Soll.Tag -lt $heute -and -not ($Einst.WochenendeUeberspringen -and ($_.Soll.Tag.DayOfWeek -eq 'Saturday' -or $_.Soll.Tag.DayOfWeek -eq 'Sunday'))
+        } | ForEach-Object { $_.Soll.Tag })
+    } catch { return @() }
+}
+
 function Invoke-Sync {
     $stempel = Get-Stempel
     $status = Get-Status
     $heute = (Get-Date).Date
 
-    $offen = @()
-    for ($i = [int]$Einst.TageRueckwirkend; $i -ge 0; $i--) {
-        $tag = $heute.AddDays(-$i)
-        $key = $tag.ToString('yyyy-MM-dd')
-        if ($status[$key] -eq 'manuell' -or $status[$key] -eq 'uebersprungen') { continue }
-        $soll = Get-TagesZeiten $tag $stempel
-        if (-not $soll) { continue }
-        $offen += $soll
-    }
+    $alleKandidaten = @(Get-SyncKandidaten $stempel $status)
+    $nachgetragen = @()
     # Aktuelles Jahr immer pruefen, damit geaenderte Personalnummer/Name auch ohne neue Zeiten ankommen.
-    $jahre = @($offen | ForEach-Object { $_.Tag.Year }) + $heute.Year | Sort-Object -Unique
+    $jahre = @($alleKandidaten | ForEach-Object { $_.Soll.Tag.Year }) + $heute.Year | Sort-Object -Unique
     foreach ($jahr in $jahre) {
-        $gruppe = [pscustomobject]@{ Name = [string]$jahr; Group = @($offen | Where-Object { $_.Tag.Year -eq $jahr }) }
+        $gruppe = [pscustomobject]@{ Name = [string]$jahr }
         $pfad = Get-DateiFuerJahr $jahr
         $sitzung = $null
         $geaendert = $false
         try {
-            # Erst pruefen, ob sich ueberhaupt etwas geaendert hat - sonst Excel gar nicht oeffnen.
-            $kandidaten = @()
-            $projekte = @()
-            if ($Einst.ProjektstundenEintragen) { $projekte = @(Get-Projekte) }
-            $projSig = Get-ProjektSignatur $projekte
-            foreach ($soll in $gruppe.Group) {
-                $key = $soll.Tag.ToString('yyyy-MM-dd')
-                $p = $null
-                if ($soll.Ende -and $soll.Beginn) { $p = Get-PauseFuer ($soll.Ende - $soll.Beginn) }
-                $wert = Get-StatusWert $soll.Beginn $soll.Ende $p
-                # Heute zusaetzlich neu verteilen, wenn die Projekte im Fenster geaendert wurden
-                $sigNeu = ($soll.Tag -eq $heute -and $soll.Beginn -and $soll.Ende -and $status['sig-' + $key] -ne $projSig)
-                if ($status[$key] -ne $wert -or $sigNeu) { $kandidaten += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key } }
-            }
+            # Nur Excel oeffnen, wenn es etwas zu tun gibt.
+            $kandidaten = @($alleKandidaten | Where-Object { $_.Soll.Tag.Year -eq $jahr })
             $fe = Get-FensterEinst
             $kopfWert = '{0}|{1}' -f $fe.Personalnummer, $fe.Name
             $kopfKey = 'kopf-' + $gruppe.Name
@@ -554,20 +604,28 @@ function Invoke-Sync {
                     continue
                 }
 
-                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $projekte $status
+                Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $k.Projekte $status
                 $status[$k.Key] = $k.Wert
-                if ($k.Soll.Beginn -and $k.Soll.Ende) { $status['sig-' + $k.Key] = $projSig }
+                if ($k.Soll.Beginn -and $k.Soll.Ende) { $status['sig-' + $k.Key] = $k.Sig }
+                if ($tag -lt $heute) { $nachgetragen += $text }
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
             }
             Update-WochenCache $sitzung.Mappe $jahr
         } catch {
-            Write-Protokoll "FEHLER: $($_.Exception.Message)"
+            $anzahl = @($kandidaten).Count
+            if ($anzahl -gt 0) {
+                Write-Protokoll ("Excel-Datei nicht verfuegbar ({0}). {1} Tag(e) bleiben lokal gespeichert und werden beim naechsten Mal uebertragen." -f $_.Exception.Message, $anzahl)
+            } else {
+                Write-Protokoll "FEHLER: $($_.Exception.Message)"
+            }
+            $nachgetragen = @()
         } finally {
-            try { Close-Mappe $sitzung $geaendert } catch { Write-Protokoll "FEHLER beim Speichern: $($_.Exception.Message)"; $status = Get-Status; $geaendert = $false }
+            try { Close-Mappe $sitzung $geaendert } catch { Write-Protokoll "FEHLER beim Speichern: $($_.Exception.Message)"; $status = Get-Status; $geaendert = $false; $nachgetragen = @() }
         }
     }
     Save-Status $status
+    if ($nachgetragen.Count -gt 0) { Write-Protokoll ('Nachgetragen: ' + ($nachgetragen -join ', ')) }
 }
 
 function Invoke-Eintragen {
@@ -712,7 +770,7 @@ function Start-App([string]$Modus) {
         $f.ShowInTaskbar = $true
         $f.StartPosition = 'Manual'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $fenstergroesse = New-Object System.Drawing.Size(460, 352)
+        $fenstergroesse = New-Object System.Drawing.Size(460, 372)
         $f.ClientSize = $fenstergroesse
 
         $lbl = New-Object System.Windows.Forms.Label
@@ -775,6 +833,7 @@ function Start-App([string]$Modus) {
             # Neuer Tag (PC lief ueber Nacht)? Dann Fenster auf heute umstellen.
             if ((Get-Date).Date -ne $script:Tag -and -not $f.Visible) { & $ladeTag }
             & $zeigeGesamt
+            & $pruefeOffen
         })
 
         $ok = New-Object System.Windows.Forms.Button
@@ -868,6 +927,7 @@ function Start-App([string]$Modus) {
             $e2.Projekte = & $leseGrid
             $e2.AutomatischSchliessen = $cb.Checked
             Save-FensterEinst $e2
+            Save-ProjektSchnappschuss (Get-Date).Date
         }
 
         # Countdown: laeuft nur, solange der Haken gesetzt ist und nichts eingetippt wurde.
@@ -924,7 +984,8 @@ function Start-App([string]$Modus) {
             Add-Stempel 'Beginn' $beginnZeit
             Write-Protokoll ('Arbeitsbeginn {0} erfasst.' -f $beginnZeit.ToString('HH:mm'))
             & $merken
-            Start-Hintergrundsync
+            Start-Hintergrundsync   # traegt auch liegengebliebene Tage nach
+            $script:LetzterVersuch = Get-Date
             & $zeigeGesamt
             & $verstecken
         })
@@ -932,7 +993,33 @@ function Start-App([string]$Modus) {
 
 
         $f.Icon = $symbol
-        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb) + $beschriftungen + $felder + @($grid))
+        # Hinweis, wenn Tage noch auf die Uebertragung in die Excel-Datei warten
+        $lblOffen = New-Object System.Windows.Forms.Label
+        $lblOffen.Location = New-Object System.Drawing.Point(12, 346)
+        $lblOffen.Size = New-Object System.Drawing.Size(436, 20)
+        $lblOffen.ForeColor = [System.Drawing.Color]::DarkOrange
+        $lblOffen.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $tip.SetToolTip($lblOffen, 'Die Excel-Datei war nicht erreichbar. Die Zeiten sind lokal gespeichert und werden automatisch nachgetragen, sobald die Datei wieder verfuegbar ist.')
+
+        $script:OffenVorher = @()
+        $script:LetzterVersuch = Get-Date
+        $pruefeOffen = {
+            $offen = @(Get-OffeneTage)
+            if ($offen.Count -gt 0) {
+                $lblOffen.Text = ('Noch nicht in Excel: ' + (($offen | ForEach-Object { $_.ToString('ddd dd.MM.', $DeKultur) }) -join ', ') + ' - wird nachgetragen')
+                # Alle 30 Minuten einen neuen Versuch starten
+                if (((Get-Date) - $script:LetzterVersuch).TotalMinutes -ge 30) { $script:LetzterVersuch = Get-Date; Start-Hintergrundsync }
+            } else {
+                $lblOffen.Text = ''
+                if ($script:OffenVorher.Count -gt 0) {
+                    $tray.ShowBalloonTip(5000, 'Stundennachweis',
+                        ('In die Excel-Datei nachgetragen: ' + (($script:OffenVorher | ForEach-Object { $_.ToString('ddd dd.MM.', $DeKultur) }) -join ', ')), 'Info')
+                }
+            }
+            $script:OffenVorher = $offen
+        }
+
+        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb, $lblOffen) + $beschriftungen + $felder + @($grid))
         $f.AcceptButton = $ok
         $f.CancelButton = $spaeter
 
@@ -1025,6 +1112,7 @@ function Start-App([string]$Modus) {
 
         & $ladeTag
         & $zeigeGesamt
+        & $pruefeOffen
         $uhr.Start()
         if ($Modus -eq 'Zeigen' -or (& $brauchtBeginn)) { & $zeigen }
 
@@ -1094,6 +1182,7 @@ try {
     if ($Aktion -eq 'Herunterfahren') {
         if (Test-AutomatischerNeustart) { Write-Protokoll 'Automatischer Neustart durch Windows - kein Arbeitsende eingetragen.'; return }
         Add-Stempel 'Gehen'
+        try { $Einst = Get-Einstellungen; Save-ProjektSchnappschuss (Get-Date).Date } catch { }
     }
     if ($OhneExcel) { return }
 

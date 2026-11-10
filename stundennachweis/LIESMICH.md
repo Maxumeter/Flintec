@@ -94,8 +94,18 @@ Folgende Tage werden **nicht** angefasst:
 - Projektstunden an Tagen, an denen du von Hand auf Projekte gebucht hast, die nicht in der Tabelle stehen. Beginn, Ende und Pause trägt das Skript trotzdem ein.
 
 Ist die Datei bei dir in Excel offen, schreibt das Skript direkt hinein und speichert.
-Klappt das Eintragen beim Herunterfahren nicht, z. B. weil Windows zu schnell beendet oder jemand anderes
-die Datei offen hat, holt das Skript es beim nächsten Anmelden nach. Die Uhrzeit des Herunterfahrens geht dabei nicht verloren.
+
+### Wenn die Excel-Datei nicht erreichbar ist
+
+Die Datei liegt auf dem Netzlaufwerk. Manchmal ist es nicht verbunden (VPN, Netzwerk), die Datei ist von jemand anderem geöffnet, oder Windows fährt zu schnell herunter.
+Dann geht nichts verloren:
+
+- **Beginn, Ende und die Projektverteilung des Tages** werden immer zuerst lokal gespeichert, unter `%LOCALAPPDATA%\Stundennachweis`.
+  Gespeichert wird genau die Verteilung, die an dem Tag im Fenster stand. Änderst du am nächsten Tag die Projekte, wird der alte Tag trotzdem mit seiner eigenen Verteilung eingetragen.
+- **Nachgetragen** wird automatisch beim nächsten Eintrag in die Datei: beim Start am Morgen, nach „Eintragen“ im Fenster und solange etwas offen ist zusätzlich alle 30 Minuten.
+- Im Fenster steht dann unten in Orange z. B. `Noch nicht in Excel: Mo 09.11. - wird nachgetragen`.
+- Sobald es geklappt hat, erscheint neben der Uhr der Hinweis „In die Excel-Datei nachgetragen: …“. Außerdem steht es im Protokoll.
+- Bis zu 60 Tage werden so aufbewahrt und nachgetragen.
 Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zählen nicht als Arbeitsende.
 
 ## Einrichten (einmalig, ca. 2 Minuten)
