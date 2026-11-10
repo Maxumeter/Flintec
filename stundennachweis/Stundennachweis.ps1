@@ -712,7 +712,8 @@ function Start-App([string]$Modus) {
         $f.ShowInTaskbar = $true
         $f.StartPosition = 'Manual'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $f.ClientSize = New-Object System.Drawing.Size(460, 352)
+        $fenstergroesse = New-Object System.Drawing.Size(460, 352)
+        $f.ClientSize = $fenstergroesse
 
         $lbl = New-Object System.Windows.Forms.Label
         $lbl.Location = New-Object System.Drawing.Point(12, 12)
@@ -953,10 +954,13 @@ function Start-App([string]$Modus) {
                 # Neuer Tag oder noch kein Beginn: Vorschlag auf die aktuelle Uhrzeit setzen
                 if ((Get-Date).Date -ne $script:Tag -or (& $brauchtBeginn)) { & $ladeTag }
             }
+            # Reihenfolge wichtig: erst anzeigen, dann aus dem minimierten Zustand holen,
+            # dann Groesse und Position setzen - sonst bleibt nur die kleine Titelleiste uebrig.
+            $f.Show()
+            if ($f.WindowState -ne [System.Windows.Forms.FormWindowState]::Normal) { $f.WindowState = [System.Windows.Forms.FormWindowState]::Normal }
+            $f.ClientSize = $fenstergroesse
             $bereich = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
             $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
-            $f.WindowState = 'Normal'
-            $f.Show()
             $f.BringToFront()
             $f.Activate()
             $tb.Focus(); $tb.SelectAll()
@@ -977,7 +981,13 @@ function Start-App([string]$Modus) {
         }
 
         # Minimieren und X schicken das Fenster in den Hintergrund (Infobereich)
-        $f.Add_Resize({ if ($f.WindowState -eq 'Minimized') { & $verstecken } })
+        $f.Add_Resize({
+            if ($f.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+                & $verstecken
+                # Fuer das naechste Oeffnen gleich wieder auf normale Groesse stellen
+                $f.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+            }
+        })
         $f.Add_FormClosing({
             if ($_.CloseReason -eq 'UserClosing' -and -not $script:Beenden) { $_.Cancel = $true; & $verstecken }
             else { & $merken }
