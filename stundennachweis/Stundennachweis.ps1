@@ -697,13 +697,14 @@ function Test-BeginnErfasst([datetime]$Tag) {
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @() }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($null -ne $o.AutomatischSchliessen) { $e.AutomatischSchliessen = [bool]$o.AutomatischSchliessen }
             if ($o.Personalnummer) { $e.Personalnummer = ([string]$o.Personalnummer).Trim() }
             if ($o.Name) { $e.Name = ([string]$o.Name).Trim() }
+            if ($null -ne $o.DetailsOffen) { $e.DetailsOffen = [bool]$o.DetailsOffen }
             if ($o.PSObject.Properties['Projekte']) {
                 $e.Projekte = @($o.Projekte | Where-Object { $_ -and ([string]$_.Nummer).Trim() } | ForEach-Object {
                     [ordered]@{ Nummer = ([string]$_.Nummer).Trim(); Bezeichnung = ([string]$_.Bezeichnung).Trim(); Anteil = ([string]$_.Anteil).Trim() } })
@@ -802,8 +803,8 @@ function Start-App([string]$Modus) {
         $f.ShowInTaskbar = $true
         $f.StartPosition = 'Manual'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $fenstergroesse = New-Object System.Drawing.Size(460, 406)
-        $f.ClientSize = $fenstergroesse
+        $script:Fenstergroesse = New-Object System.Drawing.Size(460, 434)
+        $f.ClientSize = $script:Fenstergroesse
 
         $lbl = New-Object System.Windows.Forms.Label
         $lbl.Location = New-Object System.Drawing.Point(12, 12)
@@ -920,19 +921,27 @@ function Start-App([string]$Modus) {
         $tbEnde.Add_KeyDown({ & $stoppen })
         $tbEnde.Add_MouseDown({ & $stoppen })
 
-        $tbPnr  = New-Feld 'Personalnr.:' 152 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
-        $tbName = New-Feld 'Name:'        184 $fe.Name;           $beschriftungen += $script:FeldLabel
+        # Aufklappbarer Bereich: Personalnummer, Name und Projekte
+        $btnDetails = New-Object System.Windows.Forms.Label
+        $btnDetails.Location = New-Object System.Drawing.Point(12, 154)
+        $btnDetails.AutoSize = $true
+        $btnDetails.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $btnDetails.ForeColor = [System.Drawing.SystemColors]::HotTrack
+        $tip.SetToolTip($btnDetails, 'Klicken zum Auf- oder Zuklappen')
+
+        $tbPnr  = New-Feld 'Personalnr.:' 180 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
+        $tbName = New-Feld 'Name:'        212 $fe.Name;           $beschriftungen += $script:FeldLabel
         $felder = @($tbPnr, $tbName)
 
         # Projekte: Tabelle mit Auftragsnr., Bezeichnung und Anteil
         $lblPj = New-Object System.Windows.Forms.Label
         $lblPj.Text = 'Projekte  (Anteil: 2:30 / 2,5 / 40%  -  leer = Rest)'
-        $lblPj.Location = New-Object System.Drawing.Point(12, 220)
+        $lblPj.Location = New-Object System.Drawing.Point(12, 248)
         $lblPj.AutoSize = $true
         $beschriftungen += $lblPj
 
         $grid = New-Object System.Windows.Forms.DataGridView
-        $grid.Location = New-Object System.Drawing.Point(12, 244)
+        $grid.Location = New-Object System.Drawing.Point(12, 272)
         $grid.Size = New-Object System.Drawing.Size(436, 130)
         $grid.AllowUserToAddRows = $true
         $grid.AllowUserToDeleteRows = $true
@@ -1021,7 +1030,7 @@ function Start-App([string]$Modus) {
             foreach ($zeile in $grid.Rows) {
                 if ($zeile.IsNewRow) { continue }
                 try { [void](ConvertTo-Anteil ([string]$zeile.Cells[2].Value)) }
-                catch { $zeile.Cells[2].Style.BackColor = [System.Drawing.Color]::MistyRose; $grid.CurrentCell = $zeile.Cells[2]; return }
+                catch { & $setzeDetails $true; $zeile.Cells[2].Style.BackColor = [System.Drawing.Color]::MistyRose; $grid.CurrentCell = $zeile.Cells[2]; return }
             }
             try { $zeit = ConvertTo-Zeitspanne $tb.Text } catch {
                 $tb.BackColor = [System.Drawing.Color]::MistyRose
@@ -1065,7 +1074,7 @@ function Start-App([string]$Modus) {
         $f.Icon = $symbol
         # Hinweis, wenn Tage noch auf die Uebertragung in die Excel-Datei warten
         $lblOffen = New-Object System.Windows.Forms.Label
-        $lblOffen.Location = New-Object System.Drawing.Point(12, 380)
+        $lblOffen.Location = New-Object System.Drawing.Point(12, 408)
         $lblOffen.Size = New-Object System.Drawing.Size(436, 20)
         $lblOffen.ForeColor = [System.Drawing.Color]::DarkOrange
         $lblOffen.Font = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -1089,9 +1098,29 @@ function Start-App([string]$Modus) {
             $script:OffenVorher = $offen
         }
 
-        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb, $lblOffen, $lblEnde, $tbEnde, $lblEndeHinweis) + $beschriftungen + $felder + @($grid))
+        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb, $lblOffen, $lblEnde, $tbEnde, $lblEndeHinweis, $btnDetails) + $beschriftungen + $felder + @($grid))
         $f.AcceptButton = $ok
         $f.CancelButton = $spaeter
+
+        $sektion = @($beschriftungen[0], $tbPnr, $beschriftungen[1], $tbName, $lblPj, $grid)
+        $setzeDetails = {
+            param([bool]$Auf)
+            $script:DetailsOffen = $Auf
+            foreach ($c in $sektion) { $c.Visible = $Auf }
+            $pfeil = if ($Auf) { [char]0x25BC } else { [char]0x25B6 }
+            $btnDetails.Text = "$pfeil  Personalnummer, Name und Projekte"
+            if ($Auf) {
+                $lblOffen.Location = New-Object System.Drawing.Point(12, 408)
+                $script:Fenstergroesse = New-Object System.Drawing.Size(460, 434)
+            } else {
+                $lblOffen.Location = New-Object System.Drawing.Point(12, 182)
+                $script:Fenstergroesse = New-Object System.Drawing.Size(460, 208)
+            }
+            $f.ClientSize = $script:Fenstergroesse
+            $e2 = Get-FensterEinst; $e2.DetailsOffen = $Auf; Save-FensterEinst $e2
+        }
+        $btnDetails.Add_Click({ & $stoppen; & $setzeDetails (-not $script:DetailsOffen) })
+        & $setzeDetails $fe.DetailsOffen
 
         $ladeTag = {
             $script:Tag = (Get-Date).Date
@@ -1135,7 +1164,7 @@ function Start-App([string]$Modus) {
             # dann Groesse und Position setzen - sonst bleibt nur die kleine Titelleiste uebrig.
             $f.Show()
             if ($f.WindowState -ne [System.Windows.Forms.FormWindowState]::Normal) { $f.WindowState = [System.Windows.Forms.FormWindowState]::Normal }
-            $f.ClientSize = $fenstergroesse
+            $f.ClientSize = $script:Fenstergroesse
             $bereich = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
             $f.Location = New-Object System.Drawing.Point(($bereich.Right - $f.Width - 12), ($bereich.Top + 12))
             $f.BringToFront()

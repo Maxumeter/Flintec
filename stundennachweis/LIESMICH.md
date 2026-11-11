@@ -56,6 +56,10 @@ Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
 
 ### Projekte und Verteilung
 
+Personalnummer, Name und die Projekttabelle liegen in einem **aufklappbaren Bereich**.
+Ein Klick auf `▶ Personalnummer, Name und Projekte` klappt ihn auf, ein Klick auf `▼` wieder zu.
+Das Fenster merkt sich, ob der Bereich offen ist. Ist ein Anteil ungültig, klappt er beim Eintragen von selbst auf.
+
 Ganz unten im Fenster steht eine kleine Tabelle mit den Spalten **Auftragsnr.**, **Bezeichnung**, **Anteil** und **Stunden**.
 Die Spalte **Stunden** (grau) zeigt, wie viele der bisherigen Tagesstunden auf jedes Projekt entfallen.
 Sie aktualisiert sich zusammen mit der Gesamtanzeige und sofort, wenn du einen Anteil änderst.
