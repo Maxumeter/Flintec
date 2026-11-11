@@ -160,6 +160,9 @@ function Get-TagesZeiten([datetime]$Tag, $Stempel) {
     # Arbeitsbeginn = zuletzt im Fenster eingetippte Uhrzeit (spaetere Eingabe korrigiert eine fruehere)
     $beginnStempel = $tagesStempel | Where-Object { $_.Art -eq 'Beginn' } | Select-Object -Last 1
     $gehen = $tagesStempel | Where-Object { $_.Art -eq 'Gehen' } | Sort-Object Zeit | Select-Object -Last 1
+    # Im Fenster korrigiertes Arbeitsende hat Vorrang vor dem Herunterfahren
+    $endeStempel = $tagesStempel | Where-Object { $_.Art -eq 'Ende' } | Select-Object -Last 1
+    if ($endeStempel) { $gehen = $endeStempel }
     if (-not $beginnStempel -and -not $gehen) { return $null }
 
     $b = $null; $e = $null
@@ -374,6 +377,13 @@ function Set-Tag($Blatt, [int]$Spalte, [datetime]$Tag, $B, $E, $P, $Projekte, $S
     $b2 = Get-Zellzeit $Blatt $Z_BEGINN $Spalte
     $e2 = Get-Zellzeit $Blatt $Z_ENDE $Spalte
     $p2 = Get-Zellzeit $Blatt $Z_PAUSE $Spalte
+
+    # Stehen Beginn und Ende in der Datei, aber keine Pause (z. B. weil der Beginn
+    # nicht ueber das Fenster kam), die Pause aus den Zeiten in der Datei berechnen.
+    if ($null -eq $P -and $null -ne $b2 -and $null -ne $e2 -and $null -eq $p2 -and $e2 -gt $b2) {
+        $p2 = Get-PauseFuer ($e2 - $b2)
+        $Blatt.Cells.Item($Z_PAUSE, $Spalte).Value2 = $p2.TotalDays
+    }
     if (@($Projekte).Count -eq 0 -or $null -eq $b2 -or $null -eq $e2) { return }
 
     $gesamt = [math]::Round(($e2 - $b2 - $(if ($p2) { $p2 } else { [TimeSpan]::Zero })).TotalHours, 2)
@@ -597,6 +607,7 @@ function Invoke-Sync {
                 # Von Hand geaendert? Dann Finger weg.
                 $ist = Get-StatusWert (Get-Zellzeit $blatt $Z_BEGINN $spalte) (Get-Zellzeit $blatt $Z_ENDE $spalte) (Get-Zellzeit $blatt $Z_PAUSE $spalte)
                 $zuletzt = $status[$k.Key]
+                if ($status['ist-' + $k.Key]) { $zuletzt = $status['ist-' + $k.Key] }   # was zuletzt wirklich in der Datei stand
                 $leer = '||'
                 if (($zuletzt -and $ist -ne $zuletzt) -or (-not $zuletzt -and $ist -ne $leer)) {
                     $status[$k.Key] = 'manuell'
@@ -606,11 +617,32 @@ function Invoke-Sync {
 
                 Set-Tag $blatt $spalte $tag $k.Soll.Beginn $k.Soll.Ende $k.Pause $k.Projekte $status
                 $status[$k.Key] = $k.Wert
+                $status['ist-' + $k.Key] = Get-StatusWert (Get-Zellzeit $blatt $Z_BEGINN $spalte) (Get-Zellzeit $blatt $Z_ENDE $spalte) (Get-Zellzeit $blatt $Z_PAUSE $spalte)
                 if ($k.Soll.Beginn -and $k.Soll.Ende) { $status['sig-' + $k.Key] = $k.Sig }
                 if ($tag -lt $heute) { $nachgetragen += $text }
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
             }
+            # Reparatur: Tage, die das Skript frueher eingetragen hat, bei denen aber die Pause fehlt
+            $schnapp = Get-ProjektSchnappschuesse
+            foreach ($rkey in @($status.Keys)) {
+                if ($rkey -notmatch '^\d{4}-\d{2}-\d{2}$') { continue }
+                if ($status[$rkey] -eq 'manuell' -or $status[$rkey] -eq 'uebersprungen') { continue }
+                $rtag = [datetime]::ParseExact($rkey, 'yyyy-MM-dd', $Inv)
+                if ($rtag.Year -ne $jahr -or $rtag -lt $heute.AddDays(-60)) { continue }
+                try { $rblatt = Get-Blatt $sitzung.Mappe $rtag; $rspalte = Find-Spalte $rblatt $rtag } catch { continue }
+                if ($null -ne (Get-Zellzeit $rblatt $Z_PAUSE $rspalte)) { continue }
+                if ($null -eq (Get-Zellzeit $rblatt $Z_BEGINN $rspalte) -or $null -eq (Get-Zellzeit $rblatt $Z_ENDE $rspalte)) { continue }
+                $rproj = @()
+                if ($Einst.ProjektstundenEintragen) {
+                    if ($schnapp.ContainsKey($rkey)) { $rproj = @($schnapp[$rkey]) } else { $rproj = @(Get-Projekte) }
+                }
+                Set-Tag $rblatt $rspalte $rtag $null $null $null $rproj $status
+                $status['ist-' + $rkey] = Get-StatusWert (Get-Zellzeit $rblatt $Z_BEGINN $rspalte) (Get-Zellzeit $rblatt $Z_ENDE $rspalte) (Get-Zellzeit $rblatt $Z_PAUSE $rspalte)
+                $geaendert = $true
+                Write-Protokoll ("{0}: fehlende Pause nachgetragen." -f $rtag.ToString('ddd dd.MM.', $DeKultur))
+            }
+
             Update-WochenCache $sitzung.Mappe $jahr
         } catch {
             $anzahl = @($kandidaten).Count
@@ -770,7 +802,7 @@ function Start-App([string]$Modus) {
         $f.ShowInTaskbar = $true
         $f.StartPosition = 'Manual'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $fenstergroesse = New-Object System.Drawing.Size(460, 372)
+        $fenstergroesse = New-Object System.Drawing.Size(460, 406)
         $f.ClientSize = $fenstergroesse
 
         $lbl = New-Object System.Windows.Forms.Label
@@ -871,19 +903,36 @@ function Start-App([string]$Modus) {
             $script:FeldLabel = $l
             return $t
         }
-        $tbPnr  = New-Feld 'Personalnr.:' 118 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
-        $tbName = New-Feld 'Name:'        150 $fe.Name;           $beschriftungen += $script:FeldLabel
+        # Arbeitsende des letzten Arbeitstags - zum Pruefen und ggf. Korrigieren
+        $lblEnde = New-Object System.Windows.Forms.Label
+        $lblEnde.Location = New-Object System.Drawing.Point(12, 121)
+        $lblEnde.AutoSize = $true
+        $tbEnde = New-Object System.Windows.Forms.TextBox
+        $tbEnde.Location = New-Object System.Drawing.Point(230, 118)
+        $tbEnde.Width = 70
+        $tbEnde.TextAlign = 'Center'
+        $lblEndeHinweis = New-Object System.Windows.Forms.Label
+        $lblEndeHinweis.Location = New-Object System.Drawing.Point(308, 121)
+        $lblEndeHinweis.Size = New-Object System.Drawing.Size(140, 20)
+        $lblEndeHinweis.ForeColor = [System.Drawing.SystemColors]::GrayText
+        $lblEndeHinweis.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $tip.SetToolTip($tbEnde, 'Arbeitsende des letzten Arbeitstags. Aendern und mit "Eintragen" uebernehmen - Pause und Projektstunden werden neu berechnet.')
+        $tbEnde.Add_KeyDown({ & $stoppen })
+        $tbEnde.Add_MouseDown({ & $stoppen })
+
+        $tbPnr  = New-Feld 'Personalnr.:' 152 $fe.Personalnummer; $beschriftungen += $script:FeldLabel
+        $tbName = New-Feld 'Name:'        184 $fe.Name;           $beschriftungen += $script:FeldLabel
         $felder = @($tbPnr, $tbName)
 
         # Projekte: Tabelle mit Auftragsnr., Bezeichnung und Anteil
         $lblPj = New-Object System.Windows.Forms.Label
         $lblPj.Text = 'Projekte  (Anteil: 2:30 / 2,5 / 40%  -  leer = Rest)'
-        $lblPj.Location = New-Object System.Drawing.Point(12, 186)
+        $lblPj.Location = New-Object System.Drawing.Point(12, 220)
         $lblPj.AutoSize = $true
         $beschriftungen += $lblPj
 
         $grid = New-Object System.Windows.Forms.DataGridView
-        $grid.Location = New-Object System.Drawing.Point(12, 210)
+        $grid.Location = New-Object System.Drawing.Point(12, 244)
         $grid.Size = New-Object System.Drawing.Size(436, 130)
         $grid.AllowUserToAddRows = $true
         $grid.AllowUserToDeleteRows = $true
@@ -980,6 +1029,27 @@ function Start-App([string]$Modus) {
                 return
             }
             $tb.BackColor = [System.Drawing.SystemColors]::Window
+
+            # Geaendertes Arbeitsende des Vortags
+            if ($script:VorTag -and $tbEnde.Visible -and $tbEnde.Text.Trim() -and $tbEnde.Text.Trim() -ne $script:VorEnde) {
+                try { $endeNeu = ConvertTo-Zeitspanne $tbEnde.Text } catch {
+                    $tbEnde.BackColor = [System.Drawing.Color]::MistyRose
+                    $tbEnde.SelectAll(); $tbEnde.Focus()
+                    return
+                }
+                $vorZeiten = Get-TagesZeiten $script:VorTag (Get-Stempel)
+                if ($vorZeiten -and $vorZeiten.Beginn -and $endeNeu -le $vorZeiten.Beginn) {
+                    $tbEnde.BackColor = [System.Drawing.Color]::MistyRose
+                    $tbEnde.SelectAll(); $tbEnde.Focus()
+                    return
+                }
+                $tbEnde.BackColor = [System.Drawing.SystemColors]::Window
+                Add-Stempel 'Ende' $script:VorTag.Add($endeNeu)
+                $script:VorEnde = Format-Zeit $endeNeu
+                $lblEndeHinweis.Text = '(korrigiert)'
+                Write-Protokoll ('{0}: Arbeitsende auf {1} korrigiert.' -f $script:VorTag.ToString('ddd dd.MM.', $DeKultur), $script:VorEnde)
+            }
+
             $beginnZeit = $script:Tag.Add($zeit)
             Add-Stempel 'Beginn' $beginnZeit
             Write-Protokoll ('Arbeitsbeginn {0} erfasst.' -f $beginnZeit.ToString('HH:mm'))
@@ -995,7 +1065,7 @@ function Start-App([string]$Modus) {
         $f.Icon = $symbol
         # Hinweis, wenn Tage noch auf die Uebertragung in die Excel-Datei warten
         $lblOffen = New-Object System.Windows.Forms.Label
-        $lblOffen.Location = New-Object System.Drawing.Point(12, 346)
+        $lblOffen.Location = New-Object System.Drawing.Point(12, 380)
         $lblOffen.Size = New-Object System.Drawing.Size(436, 20)
         $lblOffen.ForeColor = [System.Drawing.Color]::DarkOrange
         $lblOffen.Font = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -1019,7 +1089,7 @@ function Start-App([string]$Modus) {
             $script:OffenVorher = $offen
         }
 
-        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb, $lblOffen) + $beschriftungen + $felder + @($grid))
+        $f.Controls.AddRange(@($lbl, $lblGesamt, $lblWoche, $tb, $ok, $spaeter, $cb, $lblOffen, $lblEnde, $tbEnde, $lblEndeHinweis) + $beschriftungen + $felder + @($grid))
         $f.AcceptButton = $ok
         $f.CancelButton = $spaeter
 
@@ -1030,6 +1100,26 @@ function Start-App([string]$Modus) {
             if ($vorher -and $vorher.Beginn) { $tb.Text = Format-Zeit $vorher.Beginn }
             else { $tb.Text = Format-Zeit (Get-Minutengenau (Get-Date)) }
             $tb.BackColor = [System.Drawing.SystemColors]::Window
+
+            # Letzter Arbeitstag vor heute mit erfassten Zeiten
+            $script:VorTag = $null
+            $script:VorEnde = ''
+            $stempel = Get-Stempel
+            for ($i = 1; $i -le 14; $i++) {
+                $t = $script:Tag.AddDays(-$i)
+                if ($Einst.WochenendeUeberspringen -and ($t.DayOfWeek -eq 'Saturday' -or $t.DayOfWeek -eq 'Sunday')) { continue }
+                $z = Get-TagesZeiten $t $stempel
+                if ($z) { $script:VorTag = $t; if ($z.Ende) { $script:VorEnde = Format-Zeit $z.Ende }; break }
+            }
+            $tbEnde.BackColor = [System.Drawing.SystemColors]::Window
+            if ($script:VorTag) {
+                $lblEnde.Text = 'Arbeitsende ' + $script:VorTag.ToString('ddd dd.MM.', $DeKultur) + ':'
+                $tbEnde.Text = $script:VorEnde
+                $lblEndeHinweis.Text = $(if ($script:VorEnde) { '(beim Herunterfahren)' } else { '(fehlt - bitte eintragen)' })
+                $lblEnde.Visible = $true; $tbEnde.Visible = $true; $lblEndeHinweis.Visible = $true
+            } else {
+                $lblEnde.Visible = $false; $tbEnde.Visible = $false; $lblEndeHinweis.Visible = $false
+            }
         }
         $brauchtBeginn = {
             $h = (Get-Date).Date

@@ -16,6 +16,7 @@ Danach trägt das Skript in die richtige Spalte im Blatt des Monats ein:
 
 - **Zeile 4/5** – Beginn und Ende, minutengenau
 - **Zeile 6** – Pause 0:15. Erst wenn die Anwesenheit (Ende minus Beginn) **über 6 Stunden** liegt: 0:45
+  Fehlt an einem Tag die Pause, obwohl Beginn und Ende in der Datei stehen, ergänzt das Skript sie beim nächsten Schreiben in die Datei und rechnet die Projektstunden neu.
 - **Projektzeilen** – Arbeitszeit in Stunden, z. B. 7,53. Sie kann auf mehrere Projekte verteilt werden, siehe unten.
 
 Im Fenster steht schon die aktuelle Uhrzeit, du kannst sie überschreiben.
@@ -29,6 +30,11 @@ Die Werte der Vortage merkt sich das Skript jedes Mal, wenn es in die Excel-Date
 Für die Anzeige muss Excel deshalb nicht geöffnet werden.
 In der ersten Woche nach dem Update fehlen die Tage davor noch.
 Klickst du auf „Später“, kommt das Fenster beim nächsten Entsperren wieder.
+
+Unter dem Haken steht das **Arbeitsende des letzten Arbeitstags**, z. B. `Arbeitsende Di 10.11.: 16:42 (beim Herunterfahren)`.
+- Stimmt die Zeit nicht, z. B. weil der PC länger lief, überschreibst du sie und klickst „Eintragen“.
+- Fehlt sie, z. B. weil der PC nicht heruntergefahren wurde, steht dort „fehlt - bitte eintragen“.
+- Pause und Projektstunden dieses Tages werden mit der neuen Zeit automatisch neu berechnet.
 
 ### Im Hintergrund (Infobereich neben der Uhr)
 
