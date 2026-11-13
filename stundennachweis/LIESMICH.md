@@ -167,3 +167,16 @@ Dieser Tag wird danach nicht mehr automatisch überschrieben.
 Lass deshalb alle Dateien zusammen in einem Ordner.
 Den Quelltext der EXE findest du im Ordner `quelle`. Mit `quelle\Erstellen.cmd` lässt sie sich mit dem C#-Compiler, der bei Windows dabei ist, selbst neu bauen.
 Die EXE ist nicht digital signiert. Je nach IT-Richtlinie kann Windows oder der Virenscanner beim ersten Start nachfragen oder sie blockieren.
+
+## Handy-App
+
+Im Ordner `stundennachweis-app` liegt eine Android-App. Damit erfasst du Kommen, Gehen und die Projekte per Tipp auf dem Handy.
+Die Zeiten überträgst du später im WLAN oder über einen Hotspot an den PC.
+Das geht über Rechtsklick auf das Uhr-Symbol und **„Vom Handy übernehmen …“**. Dort lässt sich auch der **Hotspot am PC** einschalten.
+
+- **Die Zeiten vom Handy haben immer Vorrang** vor denen am PC: vor Herunterfahren und Fenster, und auch vor Tagen, die in Excel von Hand geändert wurden.
+- Hat das Handy für einen Tag nur Kommen, gilt für das Ende weiter der PC, also z. B. das Herunterfahren.
+- Handy-Tage werden auch am Wochenende und an Feiertagen eingetragen, denn wer tippt, hat gearbeitet.
+- Steht an einem Handy-Tag Urlaub o. Ä. in der Datei, werden die Zeiten trotzdem eingetragen, und im Protokoll steht ein Hinweis.
+
+Einzelheiten stehen in `stundennachweis-app/LIESMICH.md`.

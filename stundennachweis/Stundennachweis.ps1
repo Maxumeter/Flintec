@@ -60,6 +60,8 @@ $LogDatei     = Join-Path $DatenOrdner 'protokoll.log'
 $FensterDatei = Join-Path $DatenOrdner 'fenster.json'
 $WocheDatei   = Join-Path $DatenOrdner 'woche.json'
 $TageProjekteDatei = Join-Path $DatenOrdner 'projekte-je-tag.json'   # Projektverteilung je Tag (Zwischenspeicher)
+$HandyDatei   = Join-Path $DatenOrdner 'handy.json'                   # vom Handy uebernommene Tage (haben Vorrang)
+$HandyPort    = 8765
 $Z_GESAMT = 32   # Zeile "Gesamtstunden" (Projekte + Urlaub/Feiertag/Krankheit ...)
 
 # Zeilen im Tabellenblatt (siehe 2026_Stundennachweis.xlsx)
@@ -153,9 +155,47 @@ function Test-AutomatischerNeustart {
     }
 }
 
+function Get-HandyTage {
+    # Vom Handy uebernommene Tage: @{ 'yyyy-MM-dd' = @{ Beginn='7:45'; Ende='16:30'; Projekte=@(...) } }
+    # Wird zwischengespeichert und nur neu gelesen, wenn sich die Datei geaendert hat.
+    $stand = $null
+    if (Test-Path -LiteralPath $HandyDatei) { $stand = (Get-Item -LiteralPath $HandyDatei).LastWriteTimeUtc }
+    if ($null -ne $script:HandyCache -and $script:HandyStand -eq $stand) { return $script:HandyCache }
+    $h = @{}
+    if ($stand) {
+        try {
+            $o = Get-Content -LiteralPath $HandyDatei -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pp in $o.PSObject.Properties) {
+                $v = $pp.Value
+                $h[$pp.Name] = @{
+                    Beginn   = [string]$v.Beginn
+                    Ende     = [string]$v.Ende
+                    Projekte = @($v.Projekte | Where-Object { $_ -and ([string]$_.Nummer).Trim() } | ForEach-Object {
+                        [pscustomobject]@{ Nummer = ([string]$_.Nummer).Trim(); Bezeichnung = ([string]$_.Bezeichnung).Trim(); Anteil = ([string]$_.Anteil).Trim() } })
+                }
+            }
+        } catch { }
+    }
+    $script:HandyCache = $h
+    $script:HandyStand = $stand
+    return $h
+}
+
+function Save-HandyTage($Tage) {
+    $grenze = (Get-Date).Date.AddDays(-120).ToString('yyyy-MM-dd')
+    $o = [ordered]@{}
+    foreach ($k in ($Tage.Keys | Sort-Object)) {
+        if ($k -lt $grenze) { continue }
+        $o[$k] = [ordered]@{ Beginn = $Tage[$k].Beginn; Ende = $Tage[$k].Ende; Projekte = @($Tage[$k].Projekte) }
+    }
+    ($o | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $HandyDatei -Encoding UTF8
+    $script:HandyCache = $null
+}
+
 function Get-TagesZeiten([datetime]$Tag, $Stempel) {
     $tagesStempel = @($Stempel | Where-Object { $_.Zeit.Date -eq $Tag.Date })
-    if ($tagesStempel.Count -eq 0) { return $null }
+    $handy = (Get-HandyTage)[$Tag.ToString('yyyy-MM-dd')]
+    if ($tagesStempel.Count -eq 0 -and -not $handy) { return $null }
 
     # Arbeitsbeginn = zuletzt im Fenster eingetippte Uhrzeit (spaetere Eingabe korrigiert eine fruehere)
     $beginnStempel = $tagesStempel | Where-Object { $_.Art -eq 'Beginn' } | Select-Object -Last 1
@@ -163,12 +203,20 @@ function Get-TagesZeiten([datetime]$Tag, $Stempel) {
     # Im Fenster korrigiertes Arbeitsende hat Vorrang vor dem Herunterfahren
     $endeStempel = $tagesStempel | Where-Object { $_.Art -eq 'Ende' } | Select-Object -Last 1
     if ($endeStempel) { $gehen = $endeStempel }
-    if (-not $beginnStempel -and -not $gehen) { return $null }
 
     $b = $null; $e = $null
     if ($beginnStempel) { $b = Get-Minutengenau $beginnStempel.Zeit }
     if ($gehen -and (-not $beginnStempel -or $gehen.Zeit -gt $beginnStempel.Zeit)) { $e = Get-Minutengenau $gehen.Zeit }
-    return [pscustomobject]@{ Tag = $Tag.Date; Beginn = $b; Ende = $e }
+
+    # Zeiten vom Handy haben immer Vorrang
+    $vomHandy = $false
+    if ($handy) {
+        try { if ($handy.Beginn) { $b = ConvertTo-Zeitspanne $handy.Beginn; $vomHandy = $true } } catch { }
+        try { if ($handy.Ende) { $e = ConvertTo-Zeitspanne $handy.Ende; $vomHandy = $true } } catch { }
+        if ($null -ne $b -and $null -ne $e -and $e -le $b) { $e = $null }
+    }
+    if ($null -eq $b -and $null -eq $e) { return $null }
+    return [pscustomobject]@{ Tag = $Tag.Date; Beginn = $b; Ende = $e; Handy = $vomHandy }
 }
 
 # ---------------------------------------------------------------- Status (was wurde schon eingetragen?)
@@ -514,19 +562,22 @@ function Get-SyncKandidaten($Stempel, $Status) {
     $heute = (Get-Date).Date
     $tageZurueck = [math]::Max([int]$Einst.TageRueckwirkend, 60)
     $schnapp = Get-ProjektSchnappschuesse
+    $handyTage = Get-HandyTage
     $aktuell = @()
     if ($Einst.ProjektstundenEintragen) { $aktuell = @(Get-Projekte) }
     $liste = @()
     for ($i = $tageZurueck; $i -ge 0; $i--) {
         $tag = $heute.AddDays(-$i)
         $key = $tag.ToString('yyyy-MM-dd')
-        if ($Status[$key] -eq 'manuell' -or $Status[$key] -eq 'uebersprungen') { continue }
+        $vomHandy = $handyTage.ContainsKey($key)   # Handy gewinnt immer - auch gegen "manuell"
+        if (-not $vomHandy -and ($Status[$key] -eq 'manuell' -or $Status[$key] -eq 'uebersprungen')) { continue }
         $soll = Get-TagesZeiten $tag $Stempel
         if (-not $soll) { continue }
 
         $projekte = $aktuell
         $hatSchnapp = $schnapp.ContainsKey($key)
         if ($Einst.ProjektstundenEintragen -and $hatSchnapp) { $projekte = @($schnapp[$key]) }
+        if ($Einst.ProjektstundenEintragen -and $vomHandy -and @($handyTage[$key].Projekte).Count -gt 0) { $projekte = @($handyTage[$key].Projekte); $hatSchnapp = $true }
         $sig = Get-ProjektSignatur $projekte
 
         $p = $null
@@ -535,7 +586,7 @@ function Get-SyncKandidaten($Stempel, $Status) {
         # Neu verteilen, wenn sich die Projekte dieses Tages geaendert haben
         $sigNeu = (($tag -eq $heute -or $hatSchnapp) -and $soll.Beginn -and $soll.Ende -and $Status['sig-' + $key] -ne $sig)
         if ($Status[$key] -ne $wert -or $sigNeu) {
-            $liste += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key; Projekte = $projekte; Sig = $sig }
+            $liste += [pscustomobject]@{ Soll = $soll; Pause = $p; Wert = $wert; Key = $key; Projekte = $projekte; Sig = $sig; Handy = $vomHandy }
         }
     }
     return $liste
@@ -546,7 +597,7 @@ function Get-OffeneTage {
     try {
         $heute = (Get-Date).Date
         return @(Get-SyncKandidaten (Get-Stempel) (Get-Status) | Where-Object {
-            $_.Soll.Tag -lt $heute -and -not ($Einst.WochenendeUeberspringen -and ($_.Soll.Tag.DayOfWeek -eq 'Saturday' -or $_.Soll.Tag.DayOfWeek -eq 'Sunday'))
+            $_.Soll.Tag -lt $heute -and ($_.Handy -or -not ($Einst.WochenendeUeberspringen -and ($_.Soll.Tag.DayOfWeek -eq 'Saturday' -or $_.Soll.Tag.DayOfWeek -eq 'Sunday')))
         } | ForEach-Object { $_.Soll.Tag })
     } catch { return @() }
 }
@@ -586,10 +637,10 @@ function Invoke-Sync {
                 $tag = $k.Soll.Tag
                 $text = $tag.ToString('ddd dd.MM.', $DeKultur)
 
-                if ($Einst.WochenendeUeberspringen -and ($tag.DayOfWeek -eq 'Saturday' -or $tag.DayOfWeek -eq 'Sunday')) {
+                if (-not $k.Handy -and $Einst.WochenendeUeberspringen -and ($tag.DayOfWeek -eq 'Saturday' -or $tag.DayOfWeek -eq 'Sunday')) {
                     $status[$k.Key] = 'uebersprungen'; Write-Protokoll "${text}: Wochenende - nichts eingetragen."; continue
                 }
-                if ($feiertage -contains $tag) {
+                if (-not $k.Handy -and $feiertage -contains $tag) {
                     $status[$k.Key] = 'uebersprungen'; Write-Protokoll "${text}: Feiertag/Brueckentag - nichts eingetragen."; continue
                 }
 
@@ -600,7 +651,9 @@ function Invoke-Sync {
                 for ($r = $Z_ABWESEND_VON; $r -le $Z_ABWESEND_BIS; $r++) {
                     if (-not (Test-ZelleLeer $blatt $r $spalte)) { $abwesend = $true }
                 }
-                if ($abwesend) {
+                if ($abwesend -and $k.Handy) {
+                    Write-Protokoll "${text}: Achtung - an diesem Tag steht Urlaub/Krankheit o. Ae. in der Datei. Zeiten vom Handy werden trotzdem eingetragen."
+                } elseif ($abwesend) {
                     $status[$k.Key] = 'uebersprungen'; Write-Protokoll "${text}: Urlaub/Krankheit o. Ae. eingetragen - nichts geaendert."; continue
                 }
 
@@ -609,7 +662,7 @@ function Invoke-Sync {
                 $zuletzt = $status[$k.Key]
                 if ($status['ist-' + $k.Key]) { $zuletzt = $status['ist-' + $k.Key] }   # was zuletzt wirklich in der Datei stand
                 $leer = '||'
-                if (($zuletzt -and $ist -ne $zuletzt) -or (-not $zuletzt -and $ist -ne $leer)) {
+                if (-not $k.Handy -and (($zuletzt -and $ist -ne $zuletzt) -or (-not $zuletzt -and $ist -ne $leer))) {
                     $status[$k.Key] = 'manuell'
                     Write-Protokoll "${text}: In der Datei steht schon etwas ($ist), das nicht vom Skript stammt - bleibt unveraendert."
                     continue
@@ -620,6 +673,7 @@ function Invoke-Sync {
                 $status['ist-' + $k.Key] = Get-StatusWert (Get-Zellzeit $blatt $Z_BEGINN $spalte) (Get-Zellzeit $blatt $Z_ENDE $spalte) (Get-Zellzeit $blatt $Z_PAUSE $spalte)
                 if ($k.Soll.Beginn -and $k.Soll.Ende) { $status['sig-' + $k.Key] = $k.Sig }
                 if ($tag -lt $heute) { $nachgetragen += $text }
+                if ($k.Handy) { Write-Protokoll "${text}: Zeiten vom Handy eingetragen." }
                 $geaendert = $true
                 Write-Protokoll ("{0}: eingetragen  Beginn {1}  Ende {2}  Pause {3}" -f $text, (Format-Zeit $k.Soll.Beginn), (Format-Zeit $k.Soll.Ende), (Format-Zeit $k.Pause))
             }
@@ -692,12 +746,133 @@ function Invoke-Eintragen {
 }
 
 function Test-BeginnErfasst([datetime]$Tag) {
+    $h = (Get-HandyTage)[$Tag.ToString('yyyy-MM-dd')]
+    if ($h -and $h.Beginn) { return $true }
     return [bool](Get-Stempel | Where-Object { $_.Art -eq 'Beginn' -and $_.Zeit.Date -eq $Tag.Date } | Select-Object -First 1)
+}
+
+# ---------------------------------------------------------------- Handy (Abholen im WLAN / Hotspot)
+
+function Import-HandyDaten($Antwort) {
+    # Uebernimmt die Tage aus der App. Das Handy hat immer Vorrang vor den Zeiten am PC.
+    $tage = Get-HandyTage
+    $neu = @()
+    foreach ($t in @($Antwort.tage)) {
+        $datum = [string]$t.datum
+        if ($datum -notmatch '^\d{4}-\d{2}-\d{2}$') { continue }
+        $tage[$datum] = @{
+            Beginn   = ([string]$t.beginn).Trim()
+            Ende     = ([string]$t.ende).Trim()
+            Projekte = @($t.projekte | Where-Object { $_ -and ([string]$_.nummer).Trim() } | ForEach-Object {
+                [pscustomobject]@{ Nummer = ([string]$_.nummer).Trim(); Bezeichnung = ([string]$_.bezeichnung).Trim(); Anteil = ([string]$_.anteil).Trim() } })
+        }
+        $neu += $datum
+    }
+    if ($neu.Count -gt 0) {
+        Save-HandyTage $tage
+        Write-Protokoll ('Vom Handy uebernommen: ' + ($neu -join ', '))
+    }
+    return $neu
+}
+
+function Invoke-HandyAnfrage([string]$Ip, [string]$Pfad) {
+    $anfrage = [System.Net.HttpWebRequest]::Create(('http://{0}:{1}{2}' -f $Ip, $HandyPort, $Pfad))
+    $anfrage.Proxy = $null
+    $anfrage.Timeout = 6000
+    $anfrage.ReadWriteTimeout = 6000
+    try {
+        $antwort = $anfrage.GetResponse()
+        $leser = New-Object System.IO.StreamReader($antwort.GetResponseStream(), [System.Text.Encoding]::UTF8)
+        $text = $leser.ReadToEnd()
+        $antwort.Close()
+        return $text
+    } catch [System.Net.WebException] {
+        $r = $_.Exception.Response
+        if ($r -and [int]$r.StatusCode -eq 403) { throw 'CODE' }
+        throw
+    }
+}
+
+function Find-HandyAdresse([string[]]$Zusatz) {
+    # Sucht das Handy, ohne das ganze Firmennetz abzusuchen:
+    #  - die zuletzt benutzte bzw. eingetippte Adresse
+    #  - Gateways (Handy-Hotspot: das Handy ist das Gateway)
+    #  - das Netz des Windows-Hotspots (192.168.137.x), wenn der PC-Hotspot an ist
+    $kandidaten = New-Object System.Collections.Generic.List[string]
+    foreach ($z in $Zusatz) { if ($z -and $z.Trim()) { $kandidaten.Add($z.Trim()) } }
+    foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($ni.OperationalStatus -ne [System.Net.NetworkInformation.OperationalStatus]::Up) { continue }
+        $ipp = $ni.GetIPProperties()
+        foreach ($gw in $ipp.GatewayAddresses) {
+            if ($gw.Address.AddressFamily -eq 'InterNetwork' -and $gw.Address.ToString() -ne '0.0.0.0') { $kandidaten.Add($gw.Address.ToString()) }
+        }
+        foreach ($ua in $ipp.UnicastAddresses) {
+            if ($ua.Address.AddressFamily -eq 'InterNetwork' -and $ua.Address.ToString().StartsWith('192.168.137.')) {
+                for ($n = 2; $n -le 254; $n++) { $kandidaten.Add("192.168.137.$n") }
+            }
+        }
+    }
+    $liste = @($kandidaten | Select-Object -Unique)
+    $versuche = @()
+    foreach ($ip in $liste) {
+        $c = New-Object System.Net.Sockets.TcpClient
+        try { $versuche += [pscustomobject]@{ Ip = $ip; Client = $c; Task = $c.ConnectAsync($ip, $HandyPort) } } catch { $c.Close() }
+    }
+    $gefunden = $null
+    $bis = (Get-Date).AddMilliseconds(2500)
+    while (-not $gefunden -and (Get-Date) -lt $bis) {
+        foreach ($v in $versuche) {
+            if ($v.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $v.Client.Connected) { $gefunden = $v.Ip; break }
+        }
+        if (-not $gefunden) { Start-Sleep -Milliseconds 100; [System.Windows.Forms.Application]::DoEvents() }
+    }
+    foreach ($v in $versuche) { try { $v.Client.Close() } catch { } }
+    return $gefunden
+}
+
+function Invoke-WinRtWarten($Operation, [Type]$Ergebnis) {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+        $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1
+    $task = $asTask.MakeGenericMethod($Ergebnis).Invoke($null, @($Operation))
+    [void]$task.Wait(20000)
+    return $task.Result
+}
+
+function Get-HotspotManager {
+    $null = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
+    $null = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType = WindowsRuntime]
+    $profil = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
+    if (-not $profil) { throw 'Der PC hat gerade keine Netzwerkverbindung. Der Windows-Hotspot braucht eine bestehende Verbindung (LAN oder WLAN).' }
+    return [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::CreateFromConnectionProfile($profil)
+}
+
+function Start-PcHotspot {
+    # Schaltet den "Mobilen Hotspot" von Windows ein und liefert WLAN-Name und Passwort.
+    $tm = Get-HotspotManager
+    if ($tm.TetheringOperationalState -ne [Windows.Networking.NetworkOperators.TetheringOperationalState]::On) {
+        $r = Invoke-WinRtWarten ($tm.StartTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult])
+        if ($null -eq $r -or $r.Status -ne [Windows.Networking.NetworkOperators.TetheringOperationStatus]::Success) {
+            $grund = if ($r) { "$($r.Status) $($r.AdditionalErrorMessage)" } else { 'keine Antwort' }
+            throw "Windows hat den Hotspot nicht eingeschaltet ($grund)."
+        }
+        $script:HotspotVonUns = $true
+    }
+    $cfg = $tm.GetCurrentAccessPointConfiguration()
+    return [pscustomobject]@{ Ssid = $cfg.Ssid; Passwort = $cfg.Passphrase }
+}
+
+function Stop-PcHotspot {
+    $tm = Get-HotspotManager
+    if ($tm.TetheringOperationalState -eq [Windows.Networking.NetworkOperators.TetheringOperationalState]::On) {
+        [void](Invoke-WinRtWarten ($tm.StopTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult]))
+    }
+    $script:HotspotVonUns = $false
 }
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false; HandyCode = ''; HandyIp = '' }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -705,6 +880,8 @@ function Get-FensterEinst {
             if ($o.Personalnummer) { $e.Personalnummer = ([string]$o.Personalnummer).Trim() }
             if ($o.Name) { $e.Name = ([string]$o.Name).Trim() }
             if ($null -ne $o.DetailsOffen) { $e.DetailsOffen = [bool]$o.DetailsOffen }
+            if ($o.HandyCode) { $e.HandyCode = [string]$o.HandyCode }
+            if ($o.HandyIp) { $e.HandyIp = [string]$o.HandyIp }
             if ($o.PSObject.Properties['Projekte']) {
                 $e.Projekte = @($o.Projekte | Where-Object { $_ -and ([string]$_.Nummer).Trim() } | ForEach-Object {
                     [ordered]@{ Nummer = ([string]$_.Nummer).Trim(); Bezeichnung = ([string]$_.Bezeichnung).Trim(); Anteil = ([string]$_.Anteil).Trim() } })
@@ -1126,6 +1303,7 @@ function Start-App([string]$Modus) {
             $script:Tag = (Get-Date).Date
             $lbl.Text = 'Arbeitsbeginn ' + $script:Tag.ToString('ddd dd.MM.', $DeKultur) + ':'
             $vorher = Get-TagesZeiten $script:Tag (Get-Stempel)
+            if ($vorher -and $vorher.Handy) { $lbl.Text = 'Arbeitsbeginn ' + $script:Tag.ToString('ddd dd.MM.', $DeKultur) + ' (Handy):' }
             if ($vorher -and $vorher.Beginn) { $tb.Text = Format-Zeit $vorher.Beginn }
             else { $tb.Text = Format-Zeit (Get-Minutengenau (Get-Date)) }
             $tb.BackColor = [System.Drawing.SystemColors]::Window
@@ -1138,13 +1316,13 @@ function Start-App([string]$Modus) {
                 $t = $script:Tag.AddDays(-$i)
                 if ($Einst.WochenendeUeberspringen -and ($t.DayOfWeek -eq 'Saturday' -or $t.DayOfWeek -eq 'Sunday')) { continue }
                 $z = Get-TagesZeiten $t $stempel
-                if ($z) { $script:VorTag = $t; if ($z.Ende) { $script:VorEnde = Format-Zeit $z.Ende }; break }
+                if ($z) { $script:VorTag = $t; $script:VorHandy = $z.Handy; if ($z.Ende) { $script:VorEnde = Format-Zeit $z.Ende }; break }
             }
             $tbEnde.BackColor = [System.Drawing.SystemColors]::Window
             if ($script:VorTag) {
                 $lblEnde.Text = 'Arbeitsende ' + $script:VorTag.ToString('ddd dd.MM.', $DeKultur) + ':'
                 $tbEnde.Text = $script:VorEnde
-                $lblEndeHinweis.Text = $(if ($script:VorEnde) { '(beim Herunterfahren)' } else { '(fehlt - bitte eintragen)' })
+                $lblEndeHinweis.Text = $(if ($script:VorHandy -and $script:VorEnde) { '(vom Handy)' } elseif ($script:VorEnde) { '(beim Herunterfahren)' } else { '(fehlt - bitte eintragen)' })
                 $lblEnde.Visible = $true; $tbEnde.Visible = $true; $lblEndeHinweis.Visible = $true
             } else {
                 $lblEnde.Visible = $false; $tbEnde.Visible = $false; $lblEndeHinweis.Visible = $false
@@ -1199,9 +1377,187 @@ function Start-App([string]$Modus) {
             else { & $merken }
         })
 
+        # ---------------- Fenster "Vom Handy uebernehmen"
+        $ue = [char]0x00FC; $oe = [char]0x00F6; $ae = [char]0x00E4
+        $hf = New-Object System.Windows.Forms.Form
+        $hf.Text = "Vom Handy ${ue}bernehmen"
+        $hf.FormBorderStyle = 'FixedDialog'
+        $hf.MaximizeBox = $false; $hf.MinimizeBox = $true
+        $hf.StartPosition = 'CenterScreen'
+        $hf.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+        $hf.ClientSize = New-Object System.Drawing.Size(470, 392)
+        $hf.Icon = $symbol
+        $hf.TopMost = $true
+
+        $hInfo = New-Object System.Windows.Forms.Label
+        $hInfo.Location = New-Object System.Drawing.Point(12, 10)
+        $hInfo.Size = New-Object System.Drawing.Size(446, 62)
+        $grossUe = [char]0x00DC
+        $hInfo.Text = "1. Handy und PC verbinden: gleiches WLAN, Hotspot am PC (unten) oder Hotspot am Handy.`r`n" +
+                      "2. In der App auf `"${grossUe}bertragen`" tippen.`r`n" +
+                      "3. Hier auf `"${grossUe}bernehmen`" klicken."
+
+        $hHotspotTitel = New-Object System.Windows.Forms.Label
+        $hHotspotTitel.Text = 'Hotspot am PC:'
+        $hHotspotTitel.Location = New-Object System.Drawing.Point(12, 84)
+        $hHotspotTitel.AutoSize = $true
+        $hAn = New-Object System.Windows.Forms.Button
+        $hAn.Text = 'Einschalten'
+        $hAn.Location = New-Object System.Drawing.Point(120, 79)
+        $hAn.Size = New-Object System.Drawing.Size(100, 30)
+        $hAus = New-Object System.Windows.Forms.Button
+        $hAus.Text = 'Ausschalten'
+        $hAus.Location = New-Object System.Drawing.Point(226, 79)
+        $hAus.Size = New-Object System.Drawing.Size(100, 30)
+        $hEinst = New-Object System.Windows.Forms.Button
+        $hEinst.Text = 'Einstellungen'
+        $hEinst.Location = New-Object System.Drawing.Point(332, 79)
+        $hEinst.Size = New-Object System.Drawing.Size(126, 30)
+        $hHotspot = New-Object System.Windows.Forms.Label
+        $hHotspot.Location = New-Object System.Drawing.Point(12, 116)
+        $hHotspot.Size = New-Object System.Drawing.Size(446, 44)
+        $hHotspot.ForeColor = [System.Drawing.SystemColors]::GrayText
+
+        $hCodeL = New-Object System.Windows.Forms.Label
+        $hCodeL.Text = 'Code aus der App:'
+        $hCodeL.Location = New-Object System.Drawing.Point(12, 171)
+        $hCodeL.AutoSize = $true
+        $hCode = New-Object System.Windows.Forms.TextBox
+        $hCode.Location = New-Object System.Drawing.Point(180, 168)
+        $hCode.Width = 100
+        $hCode.MaxLength = 6
+        $hIpL = New-Object System.Windows.Forms.Label
+        $hIpL.Text = 'Adresse (nur falls n' + $oe + 'tig):'
+        $hIpL.Location = New-Object System.Drawing.Point(12, 205)
+        $hIpL.AutoSize = $true
+        $hIp = New-Object System.Windows.Forms.TextBox
+        $hIp.Location = New-Object System.Drawing.Point(180, 202)
+        $hIp.Width = 140
+        $tip.SetToolTip($hIp, 'Die Adresse steht in der App unter Uebertragen. Meist findet der PC das Handy auch ohne.')
+
+        $hHol = New-Object System.Windows.Forms.Button
+        $hHol.Text = ([char]0x00DC + 'bernehmen')
+        $hHol.Location = New-Object System.Drawing.Point(12, 240)
+        $hHol.Size = New-Object System.Drawing.Size(140, 34)
+        $hHol.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+        $hZu = New-Object System.Windows.Forms.Button
+        $hZu.Text = 'Schlie' + [char]0x00DF + 'en'
+        $hZu.Location = New-Object System.Drawing.Point(358, 240)
+        $hZu.Size = New-Object System.Drawing.Size(100, 34)
+        $hHotspotAus = New-Object System.Windows.Forms.CheckBox
+        $hHotspotAus.Text = 'Hotspot danach ausschalten'
+        $hHotspotAus.Location = New-Object System.Drawing.Point(160, 247)
+        $hHotspotAus.AutoSize = $true
+        $hHotspotAus.Checked = $true
+        $hHotspotAus.Visible = $false
+
+        $hStatus = New-Object System.Windows.Forms.Label
+        $hStatus.Location = New-Object System.Drawing.Point(12, 286)
+        $hStatus.Size = New-Object System.Drawing.Size(446, 96)
+
+        $hf.Controls.AddRange(@($hInfo, $hHotspotTitel, $hAn, $hAus, $hEinst, $hHotspot, $hCodeL, $hCode, $hIpL, $hIp, $hHol, $hZu, $hHotspotAus, $hStatus))
+        $hf.AcceptButton = $hHol
+
+        $hAn.Add_Click({
+            $hHotspot.ForeColor = [System.Drawing.SystemColors]::GrayText
+            $hHotspot.Text = 'Schalte den Hotspot ein ...'
+            [System.Windows.Forms.Application]::DoEvents()
+            try {
+                $hs = Start-PcHotspot
+                $hHotspot.ForeColor = [System.Drawing.Color]::DarkGreen
+                $hHotspot.Text = "Hotspot ist an.  WLAN-Name: $($hs.Ssid)`r`nPasswort: $($hs.Passwort)   - mit dem Handy verbinden."
+                $hHotspotAus.Visible = [bool]$script:HotspotVonUns
+                Write-Protokoll "PC-Hotspot eingeschaltet ($($hs.Ssid))."
+            } catch {
+                $hHotspot.ForeColor = [System.Drawing.Color]::DarkRed
+                $hHotspot.Text = "Hat nicht geklappt: $($_.Exception.Message)`r`nTipp: Mit 'Einstellungen' den mobilen Hotspot von Hand einschalten."
+                Write-Protokoll "PC-Hotspot: $($_.Exception.Message)"
+            }
+        })
+        $hAus.Add_Click({
+            try { Stop-PcHotspot; $hHotspot.ForeColor = [System.Drawing.SystemColors]::GrayText; $hHotspot.Text = 'Hotspot ist aus.'; $hHotspotAus.Visible = $false }
+            catch { $hHotspot.ForeColor = [System.Drawing.Color]::DarkRed; $hHotspot.Text = "Ausschalten hat nicht geklappt: $($_.Exception.Message)" }
+        })
+        $hEinst.Add_Click({ try { Start-Process 'ms-settings:network-mobilehotspot' } catch { } })
+
+        $hHol.Add_Click({
+            $code = $hCode.Text.Trim()
+            if ($code -notmatch '^\d{6}$') {
+                $hStatus.ForeColor = [System.Drawing.Color]::DarkRed
+                $hStatus.Text = 'Bitte den 6-stelligen Code aus der App eintragen (steht unter "' + [char]0x00DC + 'bertragen").'
+                $hCode.Focus(); return
+            }
+            $hStatus.ForeColor = [System.Drawing.SystemColors]::ControlText
+            $hStatus.Text = 'Suche das Handy ...'
+            $hHol.Enabled = $false
+            [System.Windows.Forms.Application]::DoEvents()
+            try {
+                $feH = Get-FensterEinst
+                $ip = Find-HandyAdresse @($hIp.Text, $feH.HandyIp)
+                if (-not $ip) {
+                    $hStatus.ForeColor = [System.Drawing.Color]::DarkRed
+                    $hStatus.Text = "Handy nicht gefunden.`r`n- Ist in der App 'Uebertragen' offen?`r`n- Sind Handy und PC im selben Netz / Hotspot?`r`n- Notfalls die Adresse aus der App oben eintragen."
+                    return
+                }
+                $hStatus.Text = "Handy gefunden ($ip). Hole die Daten ..."
+                [System.Windows.Forms.Application]::DoEvents()
+                try { $json = Invoke-HandyAnfrage $ip ('/daten?code=' + $code) }
+                catch {
+                    if ("$($_.Exception.Message)" -eq 'CODE' -or "$_" -eq 'CODE') {
+                        $hStatus.ForeColor = [System.Drawing.Color]::DarkRed
+                        $hStatus.Text = 'Der Code stimmt nicht. Bitte den Code aus der App pruefen.'
+                        return
+                    }
+                    throw
+                }
+                $antwort = $json | ConvertFrom-Json
+                $neu = @(Import-HandyDaten $antwort)
+                if ($neu.Count -gt 0) {
+                    [void](Invoke-HandyAnfrage $ip ('/bestaetigen?code=' + $code + '&tage=' + ($neu -join ',')))
+                }
+                $feH = Get-FensterEinst; $feH.HandyCode = $code; $feH.HandyIp = $ip; Save-FensterEinst $feH
+                $hStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+                if ($neu.Count -eq 0) {
+                    $hStatus.Text = 'Fertig - auf dem Handy waren keine neuen Tage.'
+                } else {
+                    $zeilen = foreach ($d in $neu) {
+                        $t = (Get-HandyTage)[$d]
+                        $dd = [datetime]::ParseExact($d, 'yyyy-MM-dd', $Inv)
+                        '{0}  {1} - {2}' -f $dd.ToString('ddd dd.MM.', $DeKultur), $(if ($t.Beginn) { $t.Beginn } else { '?' }), $(if ($t.Ende) { $t.Ende } else { '?' })
+                    }
+                    $hStatus.Text = ("Fertig - " + $neu.Count + " Tag(e) ${ue}bernommen:`r`n" + ($zeilen -join '   ')) + "`r`nSie werden jetzt in die Excel-Datei eingetragen (sonst sp${ae}ter automatisch)."
+                    Start-Hintergrundsync
+                    $script:LetzterVersuch = Get-Date
+                    if (-not $f.Visible) { & $ladeTag }
+                    & $zeigeGesamt
+                }
+                if ($hHotspotAus.Visible -and $hHotspotAus.Checked -and $script:HotspotVonUns) {
+                    try { Stop-PcHotspot; $hHotspot.Text = 'Hotspot wieder ausgeschaltet.'; $hHotspotAus.Visible = $false } catch { }
+                }
+            } catch {
+                $hStatus.ForeColor = [System.Drawing.Color]::DarkRed
+                $hStatus.Text = "Fehler: $($_.Exception.Message)"
+                Write-Protokoll "Handy-Uebernahme: $($_.Exception.Message)"
+            } finally {
+                $hHol.Enabled = $true
+            }
+        })
+        $hZu.Add_Click({ $hf.Hide() })
+        $hf.Add_FormClosing({
+            if ($_.CloseReason -eq 'UserClosing' -and -not $script:Beenden) { $_.Cancel = $true; $hf.Hide() }
+        })
+        $zeigeHandy = {
+            $feH = Get-FensterEinst
+            if (-not $hCode.Text) { $hCode.Text = $feH.HandyCode }
+            $hStatus.Text = ''
+            $hf.Show(); $hf.WindowState = 'Normal'; $hf.BringToFront(); $hf.Activate()
+            if (-not $hCode.Text) { $hCode.Focus() } else { $hHol.Focus() }
+        }
+
         # Menue am Symbol
         $menu = New-Object System.Windows.Forms.ContextMenuStrip
         [void]$menu.Items.Add(([char]0x00D6 + 'ffnen'), $null, { & $zeigen })
+        [void]$menu.Items.Add(('Vom Handy ' + [char]0x00FC + 'bernehmen ...'), $null, { & $zeigeHandy })
         [void]$menu.Items.Add(('Excel-Datei ' + [char]0x00F6 + 'ffnen'), $null, {
             try { Start-Process -FilePath (Get-DateiFuerJahr (Get-Date).Year) } catch { Write-Protokoll "FEHLER: $($_.Exception.Message)" }
         })
